@@ -11,6 +11,7 @@ interface Props {
   totalRounds: number;
   onGameOver: (result: GameResult) => void;
   onCancel: () => void;
+  isDemo?: boolean;
 }
 
 const GameBoard: React.FC<Props> = ({ initialTracks, difficulty, totalRounds, onGameOver, onCancel }) => {
@@ -25,6 +26,7 @@ const GameBoard: React.FC<Props> = ({ initialTracks, difficulty, totalRounds, on
   const [missedTracks, setMissedTracks] = useState<SpotifyTrack[]>([]);
   const [correctCount, setCorrectCount] = useState(0);
   const [round, setRound] = useState(1);
+  const [statusMessage, setStatusMessage] = useState("");
   const [loadingAudio, setLoadingAudio] = useState(false);
   const [usedIndices, setUsedIndices] = useState<Set<number>>(new Set());
 
@@ -65,23 +67,21 @@ const GameBoard: React.FC<Props> = ({ initialTracks, difficulty, totalRounds, on
     setIsAnswered(false);
     setSelectedId(null);
     setLoadingAudio(true);
+    setStatusMessage("Crawling Spotify...");
 
-    // USING THE SPOTIFY-PREVIEW-FINDER LOGIC
     let previewUrl = null;
 
-    // 1. Search using the package logic
-    const finderResult = await audioService.spotifyPreviewFinder(correct.name, correct.artists[0].name, 3);
+    // DEEP CRAWLER LOGIC: 
+    // We search the global catalog for any version (p.scdn.co link) of this exact song.
+    const crawlerResult = await audioService.spotifyPreviewFinder(correct.name, correct.artists[0].name);
     
-    if (finderResult.success && finderResult.results.length > 0) {
-      // Find the first result that has a preview URL
-      const bestMatch = finderResult.results.find(r => r.previewUrls.length > 0);
-      if (bestMatch) {
-        previewUrl = bestMatch.previewUrls[0];
-      }
+    if (crawlerResult.success && crawlerResult.results.length > 0) {
+      previewUrl = crawlerResult.results[0].previewUrl;
     }
 
-    // 2. Final Fallback if Spotify is being difficult
+    // FINAL FALLBACK:
     if (!previewUrl) {
+      setStatusMessage("Using Global Backup...");
       previewUrl = await audioService.getItunesPreview(correct.name, correct.artists[0].name);
     }
 
@@ -95,6 +95,7 @@ const GameBoard: React.FC<Props> = ({ initialTracks, difficulty, totalRounds, on
         handleAnswer(null); 
       });
     } else {
+      // If we still can't find it, skip to next round quietly
       setRound(prev => prev + 1);
       startNextRound();
     }
@@ -192,7 +193,7 @@ const GameBoard: React.FC<Props> = ({ initialTracks, difficulty, totalRounds, on
                    {loadingAudio ? (
                       <div className="flex flex-col items-center gap-6">
                         <div className="w-16 h-16 border-4 border-white/5 border-t-[#1DB954] rounded-full animate-spin"></div>
-                        <p className="text-[10px] font-black uppercase tracking-[0.4em] text-gray-500">Spotify Search...</p>
+                        <p className="text-[10px] font-black uppercase tracking-[0.4em] text-[#1DB954]">{statusMessage}</p>
                       </div>
                    ) : (
                      <div className="flex gap-3 items-end h-24">
@@ -233,6 +234,8 @@ const GameBoard: React.FC<Props> = ({ initialTracks, difficulty, totalRounds, on
                   className={`group relative p-8 rounded-[2rem] transition-all flex items-center gap-6 text-left font-black ${btnClass} transform active:scale-95`}
                 >
                   <span className="text-xl md:text-2xl truncate w-full">{option.name}</span>
+                  {isAnswered && isCorrect && <span className="text-3xl">✅</span>}
+                  {isAnswered && !isCorrect && isSelected && <span className="text-3xl">❌</span>}
                 </button>
               );
             })}

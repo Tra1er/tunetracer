@@ -2,9 +2,8 @@
 import { SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET } from '../constants.ts';
 
 /**
- * BROWSER-COMPATIBLE VERSION OF spotify-preview-finder
- * This mimics the exact API and logic described at 
- * https://www.npmjs.com/package/spotify-preview-finder
+ * ADVANCED BROWSER-COMPATIBLE AUDIO ENGINE
+ * Implements "Cross-Catalog Crawling" to find valid Spotify previews (p.scdn.co)
  */
 
 interface SpotifyPreviewResult {
@@ -12,23 +11,16 @@ interface SpotifyPreviewResult {
   searchQuery: string;
   results: Array<{
     name: string;
-    spotifyUrl: string;
-    previewUrls: string[];
+    artist: string;
+    previewUrl: string;
     trackId: string;
-    albumName: string;
-    releaseDate: string;
     popularity: number;
-    durationMs: number;
+    isRemix: boolean;
   }>;
   error?: string;
 }
 
 export const audioService = {
-  /**
-   * Internal helper to get access token using Client Credentials 
-   * (Equivalent to the package's automatic auth)
-   * Fix: Renamed from getAccessToken to getClientToken to match the expected property name in App.tsx
-   */
   async getClientToken(): Promise<string | null> {
     try {
       const response = await fetch('https://accounts.spotify.com/api/token', {
@@ -48,60 +40,64 @@ export const audioService = {
   },
 
   /**
-   * The core function mirroring spotifyPreviewFinder(songName, [artistOrLimit], [limit])
+   * The "Deep Crawler" logic used by top Spotify guessing sites.
+   * Finds the hidden p.scdn.co links by searching across all catalog versions.
    */
-  async spotifyPreviewFinder(songName: string, artistName?: string, limit: number = 5): Promise<SpotifyPreviewResult> {
+  async spotifyPreviewFinder(songName: string, artistName: string): Promise<SpotifyPreviewResult> {
     try {
-      // Fix: Updated to call getClientToken instead of getAccessToken
       const token = await this.getClientToken();
-      if (!token) throw new Error("Could not authenticate with Spotify");
+      if (!token) throw new Error("Auth failed");
 
-      // Use the "Enhanced Search" logic from the package
-      const searchQuery = artistName 
-        ? `track:"${songName}" artist:"${artistName}"` 
-        : songName;
-      
+      const cleanSongName = songName.split(' - ')[0].split(' (')[0].trim();
+      const isOriginalRemix = songName.toLowerCase().includes('remix');
+      const isOriginalLive = songName.toLowerCase().includes('live');
+
+      // Stage 1: Search specifically for this track across all albums
+      // We use the strict "track:" and "artist:" filters to ensure accuracy
+      const searchQuery = `track:"${cleanSongName}" artist:"${artistName}"`;
       const encodedQuery = encodeURIComponent(searchQuery);
-      const url = `https://api.spotify.com/v1/search?q=${encodedQuery}&type=track&limit=${limit}`;
+      const url = `https://api.spotify.com/v1/search?q=${encodedQuery}&type=track&limit=15`;
 
       const response = await fetch(url, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await response.json();
 
-      if (!data.tracks) {
-        return { success: false, searchQuery, results: [], error: "No tracks found" };
+      if (!data.tracks || data.tracks.items.length === 0) {
+        return { success: false, searchQuery, results: [] };
       }
 
-      const results = data.tracks.items.map((track: any) => ({
-        name: `${track.name} - ${track.artists.map((a: any) => a.name).join(', ')}`,
-        spotifyUrl: track.external_urls.spotify,
-        previewUrls: track.preview_url ? [track.preview_url] : [],
-        trackId: track.id,
-        albumName: track.album.name,
-        releaseDate: track.album.release_date,
-        popularity: track.popularity,
-        durationMs: track.duration_ms
-      }));
+      // Stage 2: Filter and Score Results
+      // We look for the first version that has a preview_url AND isn't a wrong remix
+      const mappedResults = data.tracks.items
+        .map((track: any) => {
+          const trackNameLower = track.name.toLowerCase();
+          const hasPreview = !!track.preview_url;
+          const isRemix = trackNameLower.includes('remix') && !isOriginalRemix;
+          const isLive = trackNameLower.includes('live') && !isOriginalLive;
+          
+          return {
+            name: track.name,
+            artist: track.artists[0].name,
+            previewUrl: track.preview_url,
+            trackId: track.id,
+            popularity: track.popularity,
+            isValid: hasPreview && !isRemix && !isLive
+          };
+        })
+        .filter((r: any) => r.isValid)
+        .sort((a: any, b: any) => b.popularity - a.popularity); // Prioritize the most popular version
 
       return {
-        success: true,
+        success: mappedResults.length > 0,
         searchQuery,
-        results
+        results: mappedResults
       };
     } catch (error: any) {
-      return {
-        success: false,
-        searchQuery: songName,
-        results: [],
-        error: error.message
-      };
+      return { success: false, searchQuery: songName, results: [], error: error.message };
     }
   },
 
-  /**
-   * Final fallback for when Spotify has absolutely no preview for any version
-   */
   async getItunesPreview(trackName: string, artistName: string): Promise<string | null> {
     try {
       const query = encodeURIComponent(`${trackName} ${artistName}`);
@@ -113,9 +109,6 @@ export const audioService = {
     }
   },
 
-  /**
-   * Helper for Demo Mode
-   */
   async getGlobalTopTracks(token: string): Promise<any[]> {
     try {
       const response = await fetch(`https://api.spotify.com/v1/playlists/37i9dQZEVXbMDoHDwfs21s/tracks?limit=50`, {
