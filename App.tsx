@@ -1,11 +1,11 @@
 
 import React, { useState, useEffect } from 'react';
-import { SpotifyPlaylist, GameDifficulty, GameResult } from './types';
-import Auth from './components/Auth';
-import PlaylistSelector from './components/PlaylistSelector';
-import GameBoard from './components/GameBoard';
-import GameOver from './components/GameOver';
-import DifficultySelector from './components/DifficultySelector';
+import { SpotifyPlaylist, GameDifficulty, GameResult } from './types.ts';
+import Auth from './components/Auth.tsx';
+import PlaylistSelector from './components/PlaylistSelector.tsx';
+import GameBoard from './components/GameBoard.tsx';
+import GameOver from './components/GameOver.tsx';
+import DifficultySelector from './components/DifficultySelector.tsx';
 
 const App: React.FC = () => {
   const [token, setToken] = useState<string | null>(null);
@@ -45,13 +45,6 @@ const App: React.FC = () => {
     setSelectedPlaylist(null);
     setDifficulty(null);
     setGameStarted(false);
-  };
-
-  const restartWithPlaylist = () => {
-    setGameResult(null);
-    setGameStarted(false);
-    // Keep difficulty and playlist, just go back to difficulty selector or restart
-    setGameStarted(true);
   };
 
   if (!token) return <Auth />;
