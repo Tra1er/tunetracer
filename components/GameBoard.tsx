@@ -1,22 +1,21 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { SpotifyPlaylist, SpotifyTrack, GameDifficulty, DIFFICULTY_CONFIG, GameResult } from '../types.ts';
-import { spotifyService } from '../services/spotifyService.ts';
 import { audioService } from '../services/audioService.ts';
 
 interface Props {
   token: string;
   playlist: SpotifyPlaylist;
+  initialTracks: SpotifyTrack[];
   difficulty: GameDifficulty;
+  totalRounds: number;
   onGameOver: (result: GameResult) => void;
   onCancel: () => void;
   isDemo?: boolean;
 }
 
-const GameBoard: React.FC<Props> = ({ token, playlist, difficulty, onGameOver, onCancel, isDemo }) => {
-  const [tracks, setTracks] = useState<SpotifyTrack[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+const GameBoard: React.FC<Props> = ({ initialTracks, difficulty, totalRounds, onGameOver, onCancel }) => {
+  const [tracks] = useState<SpotifyTrack[]>(() => [...initialTracks].sort(() => Math.random() - 0.5));
   const [currentTrack, setCurrentTrack] = useState<SpotifyTrack | null>(null);
   const [options, setOptions] = useState<SpotifyTrack[]>([]);
   const [score, setScore] = useState(0);
@@ -28,40 +27,12 @@ const GameBoard: React.FC<Props> = ({ token, playlist, difficulty, onGameOver, o
   const [correctCount, setCorrectCount] = useState(0);
   const [round, setRound] = useState(1);
   const [loadingAudio, setLoadingAudio] = useState(false);
+  const [usedIndices, setUsedIndices] = useState<Set<number>>(new Set());
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const timerRef = useRef<number | null>(null);
 
   const config = DIFFICULTY_CONFIG[difficulty];
-  const totalRounds = 10;
-
-  const loadTracks = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      let fetchedTracks: SpotifyTrack[] = [];
-      if (isDemo) {
-        fetchedTracks = await audioService.getTopHits();
-      } else {
-        fetchedTracks = await spotifyService.getPlaylistTracks(token, playlist.id);
-      }
-
-      if (fetchedTracks.length < 4) {
-        setError("This playlist doesn't have enough songs to play. Please try another one.");
-        setLoading(false);
-        return;
-      }
-      setTracks(fetchedTracks);
-      setLoading(false);
-    } catch (err) {
-      setError("Failed to load tracks. Please check your connection.");
-      setLoading(false);
-    }
-  }, [token, playlist.id, isDemo]);
-
-  useEffect(() => {
-    loadTracks();
-  }, [loadTracks]);
 
   const startNextRound = useCallback(async () => {
     if (round > totalRounds) {
@@ -69,8 +40,16 @@ const GameBoard: React.FC<Props> = ({ token, playlist, difficulty, onGameOver, o
       return;
     }
 
-    const availablePool = tracks;
-    const correct = availablePool[Math.floor(Math.random() * availablePool.length)];
+    // Pick a track that hasn't been used yet to avoid repetition
+    let trackIndex = Math.floor(Math.random() * tracks.length);
+    let attempts = 0;
+    while (usedIndices.has(trackIndex) && attempts < tracks.length) {
+      trackIndex = (trackIndex + 1) % tracks.length;
+      attempts++;
+    }
+    
+    setUsedIndices(prev => new Set(prev).add(trackIndex));
+    const correct = tracks[trackIndex];
     
     const decoys = tracks
       .filter(t => t.id !== correct.id)
@@ -86,10 +65,7 @@ const GameBoard: React.FC<Props> = ({ token, playlist, difficulty, onGameOver, o
     setSelectedId(null);
     setLoadingAudio(true);
 
-    // AUDIO ENGINE FALLBACK LOGIC
     let previewUrl = correct.preview_url;
-    
-    // If Spotify has no preview, hunt for it on iTunes
     if (!previewUrl) {
       previewUrl = await audioService.getPreviewUrl(correct.name, correct.artists[0].name);
     }
@@ -101,17 +77,15 @@ const GameBoard: React.FC<Props> = ({ token, playlist, difficulty, onGameOver, o
         startTimer();
       }).catch(() => {
         setLoadingAudio(false);
-        handleAnswer(null); // Skip if audio fails
+        handleAnswer(null); 
       });
     } else {
       setLoadingAudio(false);
-      // If absolutely no audio, we might skip or use an AI hint. 
-      // For now, let's skip to keep it "Audio Guessing"
       setRound(prev => prev + 1);
       startNextRound();
     }
 
-  }, [round, tracks, config.duration, score, streak, correctCount, missedTracks, onGameOver]);
+  }, [round, tracks, config.duration, score, streak, correctCount, missedTracks, onGameOver, totalRounds, usedIndices]);
 
   const startTimer = () => {
     if (timerRef.current) clearInterval(timerRef.current);
@@ -127,10 +101,10 @@ const GameBoard: React.FC<Props> = ({ token, playlist, difficulty, onGameOver, o
   };
 
   useEffect(() => {
-    if (!loading && !error && tracks.length > 0 && !currentTrack) {
+    if (tracks.length > 0 && !currentTrack) {
       startNextRound();
     }
-  }, [loading, error, tracks, currentTrack, startNextRound]);
+  }, [tracks, currentTrack, startNextRound]);
 
   const handleAnswer = (trackId: string | null) => {
     if (isAnswered) return;
@@ -160,27 +134,6 @@ const GameBoard: React.FC<Props> = ({ token, playlist, difficulty, onGameOver, o
     }, 2000);
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center p-6 text-white text-center">
-        <div className="w-16 h-16 border-4 border-[#1DB954] border-t-transparent rounded-full animate-spin mb-6"></div>
-        <h2 className="text-2xl font-black uppercase tracking-widest">Warming up...</h2>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center max-w-xl mx-auto">
-        <div className="bg-black/40 border-2 border-red-500/30 p-10 rounded-[3rem] backdrop-blur-3xl">
-          <h2 className="text-2xl font-black text-white mb-4 uppercase">Playlist Error</h2>
-          <p className="text-gray-400 mb-8 leading-relaxed">{error}</p>
-          <button onClick={onCancel} className="w-full py-5 bg-[#1DB954] text-black font-black text-xl rounded-2xl">GO BACK</button>
-        </div>
-      </div>
-    );
-  }
-
   const progressPercent = (timeLeft / config.duration) * 100;
 
   return (
@@ -192,7 +145,7 @@ const GameBoard: React.FC<Props> = ({ token, playlist, difficulty, onGameOver, o
           <span className="text-xs font-black uppercase tracking-[0.2em] text-gray-500">Round</span>
           <div className="flex items-baseline gap-2">
             <span className="text-4xl font-black text-white">{round}</span>
-            <span className="text-xl text-gray-600 font-bold">/ 10</span>
+            <span className="text-xl text-gray-600 font-bold">/ {totalRounds}</span>
           </div>
         </div>
 

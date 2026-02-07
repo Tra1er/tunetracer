@@ -1,58 +1,115 @@
 
-import React from 'react';
-import { GameDifficulty, DIFFICULTY_CONFIG } from '../types.ts';
+import React, { useState } from 'react';
+import { GameDifficulty, DIFFICULTY_CONFIG, SpotifyTrack } from '../types.ts';
 
 interface Props {
-  onSelect: (diff: GameDifficulty) => void;
+  tracks: SpotifyTrack[];
+  loading: boolean;
+  onSelect: (diff: GameDifficulty, rounds: number) => void;
   onBack: () => void;
 }
 
-const DifficultySelector: React.FC<Props> = ({ onSelect, onBack }) => {
+const DifficultySelector: React.FC<Props> = ({ tracks, loading, onSelect, onBack }) => {
+  const [rounds, setRounds] = useState<number>(10);
+  
+  const roundOptions = [5, 10, 20];
+  if (tracks.length > 20) roundOptions.push(Math.min(tracks.length, 50));
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center p-6 text-white text-center">
+        <div className="w-16 h-16 border-4 border-[#1DB954] border-t-transparent rounded-full animate-spin mb-6"></div>
+        <h2 className="text-2xl font-black uppercase tracking-widest">Loading Playlist...</h2>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center">
-      <h2 className="text-4xl font-black text-white mb-4 tracking-tight">Choose Your Challenge</h2>
-      <p className="text-gray-400 mb-12 max-w-md mx-auto">Shorter snippets earn higher point multipliers. How sharp are your ears?</p>
-      
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full max-w-4xl">
-        {Object.entries(DIFFICULTY_CONFIG).map(([key, config]) => {
-          const diffKey = key as GameDifficulty;
-          let bgColor = "bg-gray-800 hover:bg-[#1DB954]";
-          
-          if (diffKey === GameDifficulty.PRO) bgColor = "bg-gray-800 hover:bg-yellow-500";
-          if (diffKey === GameDifficulty.LEGEND) bgColor = "bg-gray-800 hover:bg-red-500";
-          
-          return (
-            <button
-              key={key}
-              onClick={() => onSelect(diffKey)}
-              className={`group ${bgColor} p-8 rounded-3xl transition-all hover:-translate-y-2 hover:shadow-2xl flex flex-col items-center gap-4 text-white`}
-            >
-              <div className="text-4xl">
-                {diffKey === GameDifficulty.EASY && "☕"}
-                {diffKey === GameDifficulty.PRO && "🔥"}
-                {diffKey === GameDifficulty.LEGEND && "⚡"}
+    <div className="min-h-screen w-full max-w-7xl mx-auto flex flex-col p-6 animate-[fadeIn_0.4s_ease-out]">
+      <div className="flex flex-col md:flex-row gap-8 flex-1 overflow-hidden">
+        
+        {/* Left: Configuration */}
+        <div className="flex-1 flex flex-col justify-center gap-10">
+          <div>
+            <h2 className="text-4xl font-black text-white mb-2 tracking-tight">Setup Game</h2>
+            <p className="text-gray-400">Configure your challenge parameters.</p>
+          </div>
+
+          <section>
+            <h3 className="text-xs font-black text-[#1DB954] uppercase tracking-[0.3em] mb-4">1. Choose Rounds</h3>
+            <div className="flex gap-2">
+              {roundOptions.map(opt => (
+                <button
+                  key={opt}
+                  onClick={() => setRounds(opt)}
+                  className={`flex-1 py-4 rounded-2xl font-black text-lg transition-all border-2 ${rounds === opt ? 'bg-[#1DB954] text-black border-[#1DB954]' : 'bg-white/5 text-white border-transparent hover:bg-white/10'}`}
+                >
+                  {opt}
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <section>
+            <h3 className="text-xs font-black text-[#1DB954] uppercase tracking-[0.3em] mb-4">2. Choose Difficulty</h3>
+            <div className="grid grid-cols-1 gap-4">
+              {Object.entries(DIFFICULTY_CONFIG).map(([key, config]) => {
+                const diffKey = key as GameDifficulty;
+                return (
+                  <button
+                    key={key}
+                    onClick={() => onSelect(diffKey, rounds)}
+                    className="group bg-white/5 p-6 rounded-2xl border-2 border-transparent hover:border-[#1DB954] hover:bg-white/10 transition-all flex items-center justify-between text-left"
+                  >
+                    <div>
+                      <h4 className="text-xl font-black uppercase tracking-widest mb-1">{key}</h4>
+                      <p className="text-xs text-gray-400 font-bold uppercase">{config.label}</p>
+                    </div>
+                    <div className="text-3xl opacity-50 group-hover:opacity-100 transition-opacity">
+                      {diffKey === GameDifficulty.EASY && "☕"}
+                      {diffKey === GameDifficulty.PRO && "🔥"}
+                      {diffKey === GameDifficulty.LEGEND && "⚡"}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
+          <button
+            onClick={onBack}
+            className="text-gray-500 hover:text-white flex items-center gap-2 transition-colors font-semibold uppercase tracking-widest text-xs"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M10 19l-7-7m0 0l7-7m-7 7h18" strokeWidth={3}/></svg>
+            Change Playlist
+          </button>
+        </div>
+
+        {/* Right: Track Preview */}
+        <div className="w-full md:w-[400px] flex flex-col glass rounded-[2.5rem] border-2 border-white/5 overflow-hidden">
+          <div className="p-6 bg-white/5 border-b border-white/5">
+            <h3 className="text-xs font-black text-gray-400 uppercase tracking-[0.3em]">Playlist Contents ({tracks.length})</h3>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4 space-y-2 custom-scrollbar">
+            {tracks.map((track, i) => (
+              <div key={track.id + i} className="flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 transition-colors group">
+                <img src={track.album.images[0]?.url} className="w-10 h-10 rounded-md shadow-lg" alt="" />
+                <div className="min-w-0">
+                  <p className="text-sm font-bold text-white truncate">{track.name}</p>
+                  <p className="text-[10px] font-bold text-gray-500 uppercase truncate">{track.artists[0].name}</p>
+                </div>
               </div>
-              <h3 className="text-2xl font-black uppercase tracking-widest">{key}</h3>
-              <p className="text-sm font-bold bg-black/20 py-1 px-4 rounded-full">{config.label}</p>
-              <p className="text-xs opacity-70 mt-2 font-medium">
-                {diffKey === GameDifficulty.EASY && "Relaxed listening."}
-                {diffKey === GameDifficulty.PRO && "The gold standard."}
-                {diffKey === GameDifficulty.LEGEND && "Split-second recognition."}
-              </p>
-            </button>
-          );
-        })}
+            ))}
+          </div>
+        </div>
+
       </div>
 
-      <button
-        onClick={onBack}
-        className="mt-12 text-gray-500 hover:text-white flex items-center gap-2 transition-colors font-semibold"
-      >
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-        </svg>
-        Back to Playlists
-      </button>
+      <style>{`
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
+      `}</style>
     </div>
   );
 };

@@ -3,6 +3,7 @@ import { SpotifyPlaylist, SpotifyTrack } from '../types.ts';
 
 export const spotifyService = {
   async fetchWithAuth(url: string, token: string) {
+    if (token === "DEMO_MODE") return null;
     const response = await fetch(url, {
       headers: {
         Authorization: `Bearer ${token}`
@@ -24,6 +25,7 @@ export const spotifyService = {
   },
 
   async getUserPlaylists(token: string): Promise<SpotifyPlaylist[]> {
+    if (token === "DEMO_MODE") return [];
     try {
       const data = await this.fetchWithAuth('https://api.spotify.com/v1/me/playlists?limit=50', token);
       return data.items || [];
@@ -34,9 +36,13 @@ export const spotifyService = {
   },
 
   async getFeaturedPlaylists(token: string): Promise<SpotifyPlaylist[]> {
+    const authHeader = token !== "DEMO_MODE" ? { Authorization: `Bearer ${token}` } : {};
     try {
-      const data = await this.fetchWithAuth('https://api.spotify.com/v1/browse/featured-playlists?limit=10', token);
-      return data.playlists.items || [];
+      // Use a more generic fetch if in demo mode or if auth fails
+      const url = 'https://api.spotify.com/v1/browse/featured-playlists?limit=12';
+      const response = await fetch(url, { headers: authHeader as any });
+      const data = await response.json();
+      return data.playlists?.items || [];
     } catch (e) {
       return [];
     }
@@ -44,42 +50,31 @@ export const spotifyService = {
 
   async getPlaylistTracks(
     token: string, 
-    playlistId: string, 
-    onProgress?: (scanned: number, found: number) => void
+    playlistId: string
   ): Promise<SpotifyTrack[]> {
+    if (token === "DEMO_MODE") return [];
+    
     let allTracks: SpotifyTrack[] = [];
     let offset = 0;
     const limit = 50;
     let hasMore = true;
-    let totalScanned = 0;
 
-    // We scan for tracks. We now keep tracks EVEN IF they don't have previews
-    // because we have the Gemini fallback.
-    while (allTracks.length < 30 && hasMore && offset < 200) {
-      // market=from_token is crucial for unlocking region-locked previews
+    // Fetch up to 100 tracks to ensure variety
+    while (allTracks.length < 100 && hasMore) {
       const data = await this.fetchWithAuth(
         `https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=${limit}&offset=${offset}&market=from_token`, 
         token
       );
       
-      if (!data.items) break;
+      if (!data || !data.items) break;
 
       const tracksFromBatch = data.items
         .map((item: any) => item.track)
-        .filter((track: SpotifyTrack) => track && track.id);
+        .filter((track: SpotifyTrack) => track && track.id && track.name);
       
       allTracks = [...allTracks, ...tracksFromBatch];
-      totalScanned += data.items.length;
-      
-      const foundWithPreviews = allTracks.filter(t => t.preview_url).length;
-      if (onProgress) {
-        onProgress(totalScanned, foundWithPreviews);
-      }
-
       offset += limit;
       hasMore = data.next !== null;
-      
-      if (allTracks.length >= 40) break;
     }
 
     return allTracks;

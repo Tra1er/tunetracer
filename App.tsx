@@ -8,15 +8,19 @@ import GameOver from './components/GameOver.tsx';
 import DifficultySelector from './components/DifficultySelector.tsx';
 import { SPOTIFY_CLIENT_ID, REDIRECT_URI } from './constants.ts';
 import { audioService } from './services/audioService.ts';
+import { spotifyService } from './services/spotifyService.ts';
 
 const App: React.FC = () => {
   const [token, setToken] = useState<string | null>(localStorage.getItem('spotify_token'));
   const [authError, setAuthError] = useState<string | null>(null);
   const [selectedPlaylist, setSelectedPlaylist] = useState<SpotifyPlaylist | null>(null);
+  const [playlistTracks, setPlaylistTracks] = useState<SpotifyTrack[]>([]);
   const [difficulty, setDifficulty] = useState<GameDifficulty | null>(null);
+  const [rounds, setRounds] = useState<number>(10);
   const [gameResult, setGameResult] = useState<GameResult | null>(null);
   const [gameStarted, setGameStarted] = useState(false);
   const [isDemoMode, setIsDemoMode] = useState(false);
+  const [loadingTracks, setLoadingTracks] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -62,12 +66,27 @@ const App: React.FC = () => {
     }
   };
 
-  const handlePlaylistSelect = (playlist: SpotifyPlaylist) => {
+  const handlePlaylistSelect = async (playlist: SpotifyPlaylist) => {
     setSelectedPlaylist(playlist);
+    setLoadingTracks(true);
+    try {
+      let tracks: SpotifyTrack[] = [];
+      if (isDemoMode) {
+        tracks = await audioService.getTopHits();
+      } else if (token) {
+        tracks = await spotifyService.getPlaylistTracks(token, playlist.id);
+      }
+      setPlaylistTracks(tracks);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingTracks(false);
+    }
   };
 
-  const handleDifficultySelect = (diff: GameDifficulty) => {
+  const handleStartGame = (diff: GameDifficulty, roundCount: number) => {
     setDifficulty(diff);
+    setRounds(roundCount);
     setGameStarted(true);
   };
 
@@ -79,21 +98,21 @@ const App: React.FC = () => {
   const resetGame = () => {
     setGameResult(null);
     setSelectedPlaylist(null);
+    setPlaylistTracks([]);
     setDifficulty(null);
     setGameStarted(false);
   };
 
   const startDemoMode = async () => {
     setIsDemoMode(true);
-    const topHits = await audioService.getTopHits();
+    setToken("DEMO_MODE");
     const demoPlaylist: SpotifyPlaylist = {
       id: 'demo-global-hits',
       name: 'Global Top Hits (Demo)',
       images: [{ url: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=600&h=600&fit=crop' }],
-      tracks: { total: topHits.length }
+      tracks: { total: 50 }
     };
-    setSelectedPlaylist(demoPlaylist);
-    setToken("DEMO_MODE");
+    handlePlaylistSelect(demoPlaylist);
   };
 
   const logout = () => {
@@ -114,7 +133,9 @@ const App: React.FC = () => {
       <GameBoard 
         token={token} 
         playlist={selectedPlaylist} 
+        initialTracks={playlistTracks}
         difficulty={difficulty} 
+        totalRounds={rounds}
         onGameOver={handleGameOver} 
         onCancel={resetGame}
         isDemo={isDemoMode}
@@ -123,17 +144,25 @@ const App: React.FC = () => {
   }
 
   if (selectedPlaylist && !difficulty) {
-    return <DifficultySelector onSelect={handleDifficultySelect} onBack={() => {
-      setSelectedPlaylist(null);
-      if (isDemoMode) logout();
-    }} />;
+    return (
+      <DifficultySelector 
+        tracks={playlistTracks}
+        loading={loadingTracks}
+        onSelect={handleStartGame} 
+        onBack={() => {
+          setSelectedPlaylist(null);
+          setPlaylistTracks([]);
+          if (isDemoMode && token === "DEMO_MODE") logout();
+        }} 
+      />
+    );
   }
 
   return (
     <div className="min-h-screen p-4 md:p-8 flex flex-col items-center">
       <header className="mb-12 text-center animate-[fadeIn_0.5s_ease-out]">
         <h1 className="text-5xl font-black text-white mb-2 tracking-tighter">TuneTracer</h1>
-        <p className="text-gray-400 font-medium">Select a playlist to start the challenge</p>
+        <p className="text-gray-400 font-medium">Pick a playlist to start the challenge</p>
       </header>
       <PlaylistSelector token={token} onSelect={handlePlaylistSelect} />
       <button 
