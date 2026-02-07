@@ -14,6 +14,7 @@ interface Props {
 const GameBoard: React.FC<Props> = ({ token, playlist, difficulty, onGameOver, onCancel }) => {
   const [tracks, setTracks] = useState<SpotifyTrack[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [currentTrack, setCurrentTrack] = useState<SpotifyTrack | null>(null);
   const [options, setOptions] = useState<SpotifyTrack[]>([]);
   const [score, setScore] = useState(0);
@@ -33,20 +34,22 @@ const GameBoard: React.FC<Props> = ({ token, playlist, difficulty, onGameOver, o
 
   const loadTracks = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const fetchedTracks = await spotifyService.getPlaylistTracks(token, playlist.id);
       if (fetchedTracks.length < 4) {
-        alert("This playlist doesn't have enough tracks with audio previews. Please try another one!");
-        onCancel();
+        setError("This playlist doesn't have enough tracks with audio previews. Spotify restricts previews for some songs.");
+        setLoading(false);
         return;
       }
       setTracks(fetchedTracks);
       setLoading(false);
     } catch (err) {
       console.error(err);
-      onCancel();
+      setError("Failed to load tracks. Please check your connection.");
+      setLoading(false);
     }
-  }, [token, playlist.id, onCancel]);
+  }, [token, playlist.id]);
 
   useEffect(() => {
     loadTracks();
@@ -93,10 +96,10 @@ const GameBoard: React.FC<Props> = ({ token, playlist, difficulty, onGameOver, o
   }, [round, tracks, config.duration, score, streak, correctCount, missedTracks, onGameOver]);
 
   useEffect(() => {
-    if (!loading && tracks.length > 0 && !currentTrack) {
+    if (!loading && !error && tracks.length > 0 && !currentTrack) {
       startNextRound();
     }
-  }, [loading, tracks, currentTrack, startNextRound]);
+  }, [loading, error, tracks, currentTrack, startNextRound]);
 
   const handleAnswer = (trackId: string | null) => {
     if (isAnswered) return;
@@ -128,9 +131,33 @@ const GameBoard: React.FC<Props> = ({ token, playlist, difficulty, onGameOver, o
 
   if (loading) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center p-6 text-white bg-black">
-        <div className="w-16 h-16 border-4 border-[#1DB954] border-t-transparent rounded-full animate-spin mb-6"></div>
-        <h2 className="text-2xl font-bold animate-pulse">Scanning frequencies...</h2>
+      <div className="min-h-screen flex flex-col items-center justify-center p-6 text-white">
+        <div className="relative w-24 h-24 mb-8">
+           <div className="absolute inset-0 border-4 border-[#1DB954]/20 rounded-full"></div>
+           <div className="absolute inset-0 border-4 border-[#1DB954] border-t-transparent rounded-full animate-spin"></div>
+        </div>
+        <h2 className="text-3xl font-black mb-2 animate-pulse tracking-tighter uppercase">Scanning Library</h2>
+        <p className="text-gray-500 font-medium">Hunting for playable audio previews...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center max-w-lg mx-auto">
+        <div className="bg-red-500/10 border-2 border-red-500/20 p-8 rounded-[2.5rem] backdrop-blur-xl">
+          <div className="text-6xl mb-6">🔇</div>
+          <h2 className="text-2xl font-black text-white mb-4 uppercase tracking-tight">Incompatible Playlist</h2>
+          <p className="text-gray-400 mb-8 leading-relaxed">
+            {error}
+          </p>
+          <button 
+            onClick={onCancel}
+            className="w-full py-4 bg-white text-black font-black rounded-2xl hover:scale-105 transition-transform active:scale-95"
+          >
+            TRY ANOTHER PLAYLIST
+          </button>
+        </div>
       </div>
     );
   }
@@ -167,7 +194,7 @@ const GameBoard: React.FC<Props> = ({ token, playlist, difficulty, onGameOver, o
         </div>
       </div>
 
-      <div className="w-full relative glass rounded-[40px] p-8 md:p-12 overflow-hidden border-2 border-white/5">
+      <div className="w-full relative glass rounded-[40px] p-8 md:p-12 overflow-hidden border-2 border-white/5 shadow-2xl">
         <div className="absolute top-0 left-0 w-full h-2 bg-white/5">
           <div 
             className={`h-full transition-all duration-100 ease-linear ${timeLeft < 3 ? 'bg-red-500' : 'bg-[#1DB954]'}`}
@@ -190,7 +217,7 @@ const GameBoard: React.FC<Props> = ({ token, playlist, difficulty, onGameOver, o
                 <div className="w-full h-full bg-[#181818] flex flex-col items-center justify-center p-8 text-center border-2 border-white/10">
                   <div className="flex gap-1 items-end h-12 mb-4">
                     {[...Array(5)].map((_, i) => (
-                      <div key={i} className={`w-1.5 bg-[#1DB954] rounded-full animate-[bounce_1s_infinite]`} style={{ height: `${Math.random() * 100}%`, animationDelay: `${i * 0.1}s` }}></div>
+                      <div key={i} className={`w-1.5 bg-[#1DB954] rounded-full animate-[bounce_1s_infinite]`} style={{ height: `${20 + Math.random() * 80}%`, animationDelay: `${i * 0.1}s` }}></div>
                     ))}
                   </div>
                   <p className="text-[#1DB954] font-black uppercase tracking-[0.2em] text-xs">Listening...</p>
