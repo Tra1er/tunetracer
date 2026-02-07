@@ -1,8 +1,7 @@
 
-// Your Spotify Client ID
 export const SPOTIFY_CLIENT_ID = '648704f47d164b5ab2f22c8d71af6968'; 
+export const SPOTIFY_CLIENT_SECRET = '00ddab76b08547f0927fa6e071310134';
 
-// We use the current origin. 
 export const REDIRECT_URI = window.location.origin + '/';
 
 export const SCOPES = [
@@ -12,7 +11,6 @@ export const SCOPES = [
   'user-library-read'
 ].join(' ');
 
-// For PKCE, we use response_type=code
 export const getAuthUrl = (codeChallenge: string) => {
   return `https://accounts.spotify.com/authorize?` + 
     `client_id=${SPOTIFY_CLIENT_ID}&` +

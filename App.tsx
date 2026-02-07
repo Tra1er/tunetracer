@@ -71,8 +71,8 @@ const App: React.FC = () => {
     setLoadingTracks(true);
     try {
       let tracks: SpotifyTrack[] = [];
-      if (isDemoMode) {
-        tracks = await audioService.getTopHits();
+      if (isDemoMode && token) {
+        tracks = await audioService.getGlobalTopTracks(token);
       } else if (token) {
         tracks = await spotifyService.getPlaylistTracks(token, playlist.id);
       }
@@ -104,15 +104,26 @@ const App: React.FC = () => {
   };
 
   const startDemoMode = async () => {
-    setIsDemoMode(true);
-    setToken("DEMO_MODE");
-    const demoPlaylist: SpotifyPlaylist = {
-      id: 'demo-global-hits',
-      name: 'Global Top Hits (Demo)',
-      images: [{ url: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=600&h=600&fit=crop' }],
-      tracks: { total: 50 }
-    };
-    handlePlaylistSelect(demoPlaylist);
+    setLoadingTracks(true);
+    const demoToken = await audioService.getClientToken();
+    if (demoToken) {
+      setToken(demoToken);
+      setIsDemoMode(true);
+      const demoPlaylist: SpotifyPlaylist = {
+        id: '37i9dQZEVXbMDoHDwfs21s',
+        name: 'Global Top 50 (Demo)',
+        images: [{ url: 'https://charts-images.scdn.co/assets/locale_en/regional/daily/region_global_default.jpg' }],
+        tracks: { total: 50 }
+      };
+      // We set selection after tracks are fetched to avoid UI glitches
+      const tracks = await audioService.getGlobalTopTracks(demoToken);
+      setPlaylistTracks(tracks);
+      setSelectedPlaylist(demoPlaylist);
+      setLoadingTracks(false);
+    } else {
+      setAuthError("Could not start Quick Play. Check connection.");
+      setLoadingTracks(false);
+    }
   };
 
   const logout = () => {
@@ -122,7 +133,7 @@ const App: React.FC = () => {
     window.location.search = '';
   };
 
-  if (!token) return <Auth error={authError} onDemoMode={startDemoMode} />;
+  if (!token && !loadingTracks) return <Auth error={authError} onDemoMode={startDemoMode} />;
 
   if (gameResult) {
     return <GameOver result={gameResult} onRestart={resetGame} />;
@@ -131,7 +142,7 @@ const App: React.FC = () => {
   if (gameStarted && selectedPlaylist && difficulty) {
     return (
       <GameBoard 
-        token={token} 
+        token={token!} 
         playlist={selectedPlaylist} 
         initialTracks={playlistTracks}
         difficulty={difficulty} 
@@ -152,7 +163,7 @@ const App: React.FC = () => {
         onBack={() => {
           setSelectedPlaylist(null);
           setPlaylistTracks([]);
-          if (isDemoMode && token === "DEMO_MODE") logout();
+          if (isDemoMode) logout();
         }} 
       />
     );
@@ -162,9 +173,9 @@ const App: React.FC = () => {
     <div className="min-h-screen p-4 md:p-8 flex flex-col items-center">
       <header className="mb-12 text-center animate-[fadeIn_0.5s_ease-out]">
         <h1 className="text-5xl font-black text-white mb-2 tracking-tighter">TuneTracer</h1>
-        <p className="text-gray-400 font-medium">Pick a playlist to start the challenge</p>
+        <p className="text-gray-400 font-medium">Select a playlist to start the challenge</p>
       </header>
-      <PlaylistSelector token={token} onSelect={handlePlaylistSelect} />
+      <PlaylistSelector token={token!} onSelect={handlePlaylistSelect} />
       <button 
         onClick={logout}
         className="mt-12 text-gray-500 hover:text-white transition-colors text-sm font-semibold uppercase tracking-widest"

@@ -11,10 +11,9 @@ interface Props {
   totalRounds: number;
   onGameOver: (result: GameResult) => void;
   onCancel: () => void;
-  isDemo?: boolean;
 }
 
-const GameBoard: React.FC<Props> = ({ initialTracks, difficulty, totalRounds, onGameOver, onCancel }) => {
+const GameBoard: React.FC<Props> = ({ token, initialTracks, difficulty, totalRounds, onGameOver, onCancel }) => {
   const [tracks] = useState<SpotifyTrack[]>(() => [...initialTracks].sort(() => Math.random() - 0.5));
   const [currentTrack, setCurrentTrack] = useState<SpotifyTrack | null>(null);
   const [options, setOptions] = useState<SpotifyTrack[]>([]);
@@ -31,7 +30,6 @@ const GameBoard: React.FC<Props> = ({ initialTracks, difficulty, totalRounds, on
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const timerRef = useRef<number | null>(null);
-
   const config = DIFFICULTY_CONFIG[difficulty];
 
   const startNextRound = useCallback(async () => {
@@ -40,7 +38,7 @@ const GameBoard: React.FC<Props> = ({ initialTracks, difficulty, totalRounds, on
       return;
     }
 
-    // Pick a track that hasn't been used yet to avoid repetition
+    // Pick a fresh track
     let trackIndex = Math.floor(Math.random() * tracks.length);
     let attempts = 0;
     while (usedIndices.has(trackIndex) && attempts < tracks.length) {
@@ -65,9 +63,17 @@ const GameBoard: React.FC<Props> = ({ initialTracks, difficulty, totalRounds, on
     setSelectedId(null);
     setLoadingAudio(true);
 
+    // MULTI-STAGE AUDIO FETCHING
     let previewUrl = correct.preview_url;
+
+    // 1. Try Spotify Preview Finder (Search logic)
     if (!previewUrl) {
-      previewUrl = await audioService.getPreviewUrl(correct.name, correct.artists[0].name);
+      previewUrl = await audioService.getSpotifyPreview(correct.name, correct.artists[0].name, token);
+    }
+
+    // 2. Try iTunes Fallback
+    if (!previewUrl) {
+      previewUrl = await audioService.getItunesPreview(correct.name, correct.artists[0].name);
     }
 
     if (previewUrl && audioRef.current) {
@@ -80,12 +86,12 @@ const GameBoard: React.FC<Props> = ({ initialTracks, difficulty, totalRounds, on
         handleAnswer(null); 
       });
     } else {
-      setLoadingAudio(false);
+      // If still no audio, skip this round gracefully
       setRound(prev => prev + 1);
       startNextRound();
     }
 
-  }, [round, tracks, config.duration, score, streak, correctCount, missedTracks, onGameOver, totalRounds, usedIndices]);
+  }, [round, tracks, config.duration, score, streak, correctCount, missedTracks, onGameOver, totalRounds, usedIndices, token]);
 
   const startTimer = () => {
     if (timerRef.current) clearInterval(timerRef.current);
@@ -176,7 +182,10 @@ const GameBoard: React.FC<Props> = ({ initialTracks, difficulty, totalRounds, on
               ) : (
                 <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center border-2 border-white/10">
                    {loadingAudio ? (
-                      <div className="w-12 h-12 border-4 border-white/10 border-t-[#1DB954] rounded-full animate-spin"></div>
+                      <div className="flex flex-col items-center gap-4">
+                        <div className="w-12 h-12 border-4 border-white/10 border-t-[#1DB954] rounded-full animate-spin"></div>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Scanning Spotify...</p>
+                      </div>
                    ) : (
                      <div className="flex gap-2 items-end h-16">
                        {[...Array(5)].map((_, i) => (
