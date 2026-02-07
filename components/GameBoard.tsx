@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { SpotifyPlaylist, SpotifyTrack, GameDifficulty, DIFFICULTY_CONFIG, GameResult } from '../types.ts';
 import { spotifyService } from '../services/spotifyService.ts';
+import { GoogleGenAI } from "@google/genai";
 
 interface Props {
   token: string;
@@ -26,6 +27,8 @@ const GameBoard: React.FC<Props> = ({ token, playlist, difficulty, onGameOver, o
   const [missedTracks, setMissedTracks] = useState<SpotifyTrack[]>([]);
   const [correctCount, setCorrectCount] = useState(0);
   const [round, setRound] = useState(1);
+  const [aiClue, setAiClue] = useState<string | null>(null);
+  const [clueLoading, setClueLoading] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const timerRef = useRef<number | null>(null);
@@ -44,15 +47,14 @@ const GameBoard: React.FC<Props> = ({ token, playlist, difficulty, onGameOver, o
       );
 
       if (fetchedTracks.length < 4) {
-        setError("Spotify doesn't provide audio samples for the songs in this specific playlist. This is usually due to copyright restrictions in your region.");
+        setError("This playlist is too small or restricted. Please try a different one.");
         setLoading(false);
         return;
       }
       setTracks(fetchedTracks);
       setLoading(false);
     } catch (err) {
-      console.error(err);
-      setError("Failed to connect to Spotify. Please check your internet connection.");
+      setError("Failed to connect to Spotify. If you're using a different account, ensure it's whitelisted in the Developer Dashboard.");
       setLoading(false);
     }
   }, [token, playlist.id]);
@@ -61,16 +63,33 @@ const GameBoard: React.FC<Props> = ({ token, playlist, difficulty, onGameOver, o
     loadTracks();
   }, [loadTracks]);
 
-  const startNextRound = useCallback(() => {
+  const getAiClue = async (track: SpotifyTrack) => {
+    setClueLoading(true);
+    setAiClue(null);
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: `Describe the musical style, mood, instruments, and famous elements of the song "${track.name}" by "${track.artists[0].name}" in 2 sentences. DO NOT mention the song title or artist name in your description. Start directly with the description.`,
+      });
+      setAiClue(response.text || "No description available.");
+    } catch (e) {
+      setAiClue("A mysterious track with a unique sound...");
+    } finally {
+      setClueLoading(false);
+    }
+  };
+
+  const startNextRound = useCallback(async () => {
     if (round > totalRounds) {
       onGameOver({ score, streak, correctAnswers: correctCount, missedTracks });
       return;
     }
 
-    const availableTracks = tracks.filter(t => t.preview_url);
-    const correct = availableTracks[Math.floor(Math.random() * availableTracks.length)];
+    // Prefer tracks with previews, but use AI fallback if none available
+    const availablePool = tracks.length > 10 ? tracks : tracks; 
+    const correct = availablePool[Math.floor(Math.random() * availablePool.length)];
     
-    // Pick 3 decoys from the same pool
     const decoys = tracks
       .filter(t => t.id !== correct.id)
       .sort(() => Math.random() - 0.5)
@@ -83,10 +102,19 @@ const GameBoard: React.FC<Props> = ({ token, playlist, difficulty, onGameOver, o
     setTimeLeft(config.duration);
     setIsAnswered(false);
     setSelectedId(null);
+    setAiClue(null);
 
-    if (audioRef.current) {
-      audioRef.current.src = correct.preview_url!;
-      audioRef.current.play().catch(e => console.warn("Autoplay blocked", e));
+    if (correct.preview_url) {
+      if (audioRef.current) {
+        audioRef.current.src = correct.preview_url;
+        audioRef.current.play().catch(() => {
+          // If audio fails to play, fallback to AI description
+          getAiClue(correct);
+        });
+      }
+    } else {
+      // No audio? Get AI clue immediately
+      getAiClue(correct);
     }
 
     if (timerRef.current) clearInterval(timerRef.current);
@@ -133,7 +161,7 @@ const GameBoard: React.FC<Props> = ({ token, playlist, difficulty, onGameOver, o
     setTimeout(() => {
       setRound(prev => prev + 1);
       startNextRound();
-    }, 2000);
+    }, 2500);
   };
 
   if (loading) {
@@ -142,21 +170,12 @@ const GameBoard: React.FC<Props> = ({ token, playlist, difficulty, onGameOver, o
         <div className="relative w-32 h-32 mb-10">
            <div className="absolute inset-0 border-[6px] border-[#1DB954]/10 rounded-full"></div>
            <div className="absolute inset-0 border-[6px] border-[#1DB954] border-t-transparent rounded-full animate-spin"></div>
-           <div className="absolute inset-0 flex items-center justify-center text-[#1DB954] font-black text-xl">
-             {scanStats.found}
-           </div>
         </div>
-        <h2 className="text-4xl font-black mb-4 tracking-tighter uppercase">Analyzing Tracks</h2>
-        <p className="text-gray-400 font-medium mb-8 max-w-xs">
-          Searching for songs with audio samples... <br/>
-          Checked <span className="text-white">{scanStats.scanned}</span> so far.
+        <h2 className="text-4xl font-black mb-4 tracking-tighter uppercase">Synchronizing</h2>
+        <p className="text-gray-400 font-medium mb-8 max-w-xs leading-relaxed">
+          Downloading metadata and checking regional audio availability...
         </p>
-        <button 
-          onClick={onCancel}
-          className="px-6 py-2 border border-white/10 rounded-full text-xs font-bold text-gray-500 hover:text-white transition-colors uppercase tracking-widest"
-        >
-          Cancel
-        </button>
+        <button onClick={onCancel} className="text-gray-500 hover:text-white font-bold text-xs uppercase tracking-widest">Cancel</button>
       </div>
     );
   }
@@ -165,25 +184,11 @@ const GameBoard: React.FC<Props> = ({ token, playlist, difficulty, onGameOver, o
     return (
       <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center max-w-xl mx-auto">
         <div className="bg-black/40 border-2 border-red-500/30 p-10 rounded-[3rem] backdrop-blur-3xl shadow-2xl">
-          <div className="w-20 h-20 bg-red-500/20 text-red-500 rounded-3xl flex items-center justify-center text-4xl mx-auto mb-8">
-            <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
-          </div>
-          <h2 className="text-3xl font-black text-white mb-4 uppercase tracking-tight">Preview Restriction</h2>
-          <p className="text-gray-400 mb-8 leading-relaxed text-lg">
-            {error}
-          </p>
-          <div className="bg-white/5 p-6 rounded-2xl mb-10 text-left text-sm">
-            <p className="text-white font-bold mb-2 tracking-wide uppercase text-xs opacity-50">Quick Fix:</p>
-            <ul className="space-y-2 text-gray-300">
-              <li className="flex gap-2"><span>✅</span> Try a "Global Top 50" playlist.</li>
-              <li className="flex gap-2"><span>✅</span> Avoid playlists with very obscure or unreleased tracks.</li>
-            </ul>
-          </div>
+          <h2 className="text-3xl font-black text-white mb-4 uppercase tracking-tight">Access Error</h2>
+          <p className="text-gray-400 mb-8 leading-relaxed text-lg">{error}</p>
           <button 
             onClick={onCancel}
-            className="w-full py-5 bg-[#1DB954] text-black font-black text-xl rounded-2xl hover:scale-105 transition-transform active:scale-95 shadow-xl shadow-[#1DB954]/20"
+            className="w-full py-5 bg-[#1DB954] text-black font-black text-xl rounded-2xl hover:scale-105 transition-transform"
           >
             TRY ANOTHER PLAYLIST
           </button>
@@ -215,12 +220,7 @@ const GameBoard: React.FC<Props> = ({ token, playlist, difficulty, onGameOver, o
 
         <div className="flex flex-col items-end">
           <span className="text-xs font-black uppercase tracking-[0.2em] text-gray-500 mb-1">Streak</span>
-          <div className="flex items-center gap-2">
-            <span className={`text-4xl font-black transition-colors ${streak > 0 ? 'text-yellow-400' : 'text-gray-700'}`}>{streak}</span>
-            {multiplier > 1 && (
-              <span className="bg-yellow-400 text-black px-2 py-0.5 rounded text-xs font-black animate-pulse">x{multiplier}</span>
-            )}
-          </div>
+          <span className={`text-4xl font-black transition-colors ${streak > 0 ? 'text-yellow-400' : 'text-gray-700'}`}>{streak}</span>
         </div>
       </div>
 
@@ -233,32 +233,40 @@ const GameBoard: React.FC<Props> = ({ token, playlist, difficulty, onGameOver, o
         </div>
 
         <div className="flex flex-col lg:flex-row gap-12 items-center">
-          <div className="relative w-64 h-64 md:w-80 md:h-80 flex-shrink-0 group">
-            <div className={`absolute -inset-4 bg-[#1DB954] rounded-[3rem] opacity-20 blur-3xl transition-opacity duration-500 ${!isAnswered ? 'animate-pulse' : 'opacity-0'}`}></div>
-            
-            <div className={`w-full h-full relative rounded-[3rem] overflow-hidden shadow-2xl transition-all duration-700 transform ${isAnswered ? 'scale-100 rotate-0' : 'scale-90'}`}>
+          <div className="relative w-64 h-64 md:w-80 md:h-80 flex-shrink-0">
+            <div className={`w-full h-full relative rounded-[3rem] overflow-hidden shadow-2xl transition-all duration-700 transform ${isAnswered ? 'scale-100' : 'scale-90 bg-[#181818]'}`}>
               {isAnswered ? (
-                <img 
-                  src={currentTrack?.album.images[0].url} 
-                  alt="Album Art" 
-                  className="w-full h-full object-cover animate-[pop_0.5s_ease-out]"
-                />
+                <img src={currentTrack?.album.images[0].url} alt="Album Art" className="w-full h-full object-cover" />
               ) : (
-                <div className="w-full h-full bg-[#181818] flex flex-col items-center justify-center p-8 text-center border-2 border-white/10">
-                  <div className="flex gap-1 items-end h-12 mb-4">
-                    {[...Array(5)].map((_, i) => (
-                      <div key={i} className={`w-1.5 bg-[#1DB954] rounded-full animate-[bounce_1s_infinite]`} style={{ height: `${20 + Math.random() * 80}%`, animationDelay: `${i * 0.1}s` }}></div>
-                    ))}
-                  </div>
-                  <p className="text-[#1DB954] font-black uppercase tracking-[0.2em] text-xs">Listening...</p>
+                <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center border-2 border-white/10">
+                   {clueLoading ? (
+                     <div className="animate-pulse space-y-4 w-full">
+                       <div className="h-4 bg-white/10 rounded w-full"></div>
+                       <div className="h-4 bg-white/10 rounded w-3/4 mx-auto"></div>
+                     </div>
+                   ) : aiClue ? (
+                     <div className="animate-[fadeIn_0.5s_ease-out]">
+                       <span className="text-[#1DB954] text-xs font-black uppercase tracking-widest block mb-4">AI Musical Clue:</span>
+                       <p className="text-lg font-medium text-gray-200 italic leading-relaxed">"{aiClue}"</p>
+                     </div>
+                   ) : (
+                     <>
+                      <div className="flex gap-1 items-end h-12 mb-4">
+                        {[...Array(5)].map((_, i) => (
+                          <div key={i} className="w-1.5 bg-[#1DB954] rounded-full animate-[bounce_1s_infinite]" style={{ height: `${30 + Math.random() * 70}%`, animationDelay: `${i * 0.1}s` }}></div>
+                        ))}
+                      </div>
+                      <p className="text-[#1DB954] font-black uppercase tracking-[0.2em] text-xs">Audio Stream Active</p>
+                     </>
+                   )}
                 </div>
               )}
             </div>
             
             {isAnswered && (
-              <div className="mt-6 text-center lg:text-left animate-[fadeIn_0.5s_ease-out]">
-                <h3 className="text-xl font-black text-white leading-tight mb-1">{currentTrack?.name}</h3>
-                <p className="text-gray-400 font-bold">{currentTrack?.artists.map(a => a.name).join(', ')}</p>
+              <div className="mt-6 text-center animate-[fadeIn_0.5s_ease-out]">
+                <h3 className="text-xl font-black text-white truncate">{currentTrack?.name}</h3>
+                <p className="text-gray-400 font-bold truncate">{currentTrack?.artists[0].name}</p>
               </div>
             )}
           </div>
@@ -267,12 +275,11 @@ const GameBoard: React.FC<Props> = ({ token, playlist, difficulty, onGameOver, o
             {options.map((option) => {
               const isCorrect = option.id === currentTrack?.id;
               const isSelected = option.id === selectedId;
-              
-              let btnClass = "bg-white/5 border-2 border-white/5 hover:bg-white/10 hover:border-white/20";
+              let btnClass = "bg-white/5 border-2 border-white/5 hover:bg-white/10";
               if (isAnswered) {
-                if (isCorrect) btnClass = "bg-[#1DB954] border-[#1DB954] text-black shadow-[0_0_30px_rgba(29,185,84,0.3)]";
+                if (isCorrect) btnClass = "bg-[#1DB954] border-[#1DB954] text-black shadow-lg";
                 else if (isSelected) btnClass = "bg-red-500 border-red-500 text-white";
-                else btnClass = "opacity-30 border-transparent grayscale";
+                else btnClass = "opacity-30 grayscale";
               }
 
               return (
@@ -282,13 +289,6 @@ const GameBoard: React.FC<Props> = ({ token, playlist, difficulty, onGameOver, o
                   onClick={() => handleAnswer(option.id)}
                   className={`group relative p-6 rounded-2xl transition-all flex items-center gap-4 text-left font-bold ${btnClass} transform ${!isAnswered && 'hover:scale-[1.02] active:scale-[0.98]'}`}
                 >
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm border-2 ${isAnswered && isCorrect ? 'bg-black/20 border-black/20' : 'bg-white/5 border-white/10'}`}>
-                    {isAnswered && isCorrect && (
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                      </svg>
-                    )}
-                  </div>
                   <span className="text-lg truncate">{option.name}</span>
                 </button>
               );
@@ -296,25 +296,6 @@ const GameBoard: React.FC<Props> = ({ token, playlist, difficulty, onGameOver, o
           </div>
         </div>
       </div>
-
-      <button 
-        onClick={onCancel}
-        className="mt-12 text-gray-500 hover:text-white transition-colors text-sm font-semibold uppercase tracking-[0.2em]"
-      >
-        Quit Session
-      </button>
-
-      <style>{`
-        @keyframes pop {
-          0% { transform: scale(0.8); }
-          50% { transform: scale(1.1); }
-          100% { transform: scale(1); }
-        }
-        @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(10px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-      `}</style>
     </div>
   );
 };
