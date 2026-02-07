@@ -1,0 +1,5 @@
+{
+  "name": "TuneTracer",
+  "description": "A high-octane Spotify-powered song guessing game. Test your music knowledge with speed-based scoring, streak multipliers, and custom difficulties.",
+  "requestFramePermissions": []
+}
