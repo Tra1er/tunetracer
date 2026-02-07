@@ -14,6 +14,7 @@ interface Props {
 const GameBoard: React.FC<Props> = ({ token, playlist, difficulty, onGameOver, onCancel }) => {
   const [tracks, setTracks] = useState<SpotifyTrack[]>([]);
   const [loading, setLoading] = useState(true);
+  const [scanStats, setScanStats] = useState({ scanned: 0, found: 0 });
   const [error, setError] = useState<string | null>(null);
   const [currentTrack, setCurrentTrack] = useState<SpotifyTrack | null>(null);
   const [options, setOptions] = useState<SpotifyTrack[]>([]);
@@ -36,9 +37,14 @@ const GameBoard: React.FC<Props> = ({ token, playlist, difficulty, onGameOver, o
     setLoading(true);
     setError(null);
     try {
-      const fetchedTracks = await spotifyService.getPlaylistTracks(token, playlist.id);
+      const fetchedTracks = await spotifyService.getPlaylistTracks(
+        token, 
+        playlist.id, 
+        (scanned, found) => setScanStats({ scanned, found })
+      );
+
       if (fetchedTracks.length < 4) {
-        setError("This playlist doesn't have enough tracks with audio previews. Spotify restricts previews for some songs.");
+        setError("Spotify doesn't provide audio samples for the songs in this specific playlist. This is usually due to copyright restrictions in your region.");
         setLoading(false);
         return;
       }
@@ -46,7 +52,7 @@ const GameBoard: React.FC<Props> = ({ token, playlist, difficulty, onGameOver, o
       setLoading(false);
     } catch (err) {
       console.error(err);
-      setError("Failed to load tracks. Please check your connection.");
+      setError("Failed to connect to Spotify. Please check your internet connection.");
       setLoading(false);
     }
   }, [token, playlist.id]);
@@ -64,6 +70,7 @@ const GameBoard: React.FC<Props> = ({ token, playlist, difficulty, onGameOver, o
     const availableTracks = tracks.filter(t => t.preview_url);
     const correct = availableTracks[Math.floor(Math.random() * availableTracks.length)];
     
+    // Pick 3 decoys from the same pool
     const decoys = tracks
       .filter(t => t.id !== correct.id)
       .sort(() => Math.random() - 0.5)
@@ -131,29 +138,52 @@ const GameBoard: React.FC<Props> = ({ token, playlist, difficulty, onGameOver, o
 
   if (loading) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center p-6 text-white">
-        <div className="relative w-24 h-24 mb-8">
-           <div className="absolute inset-0 border-4 border-[#1DB954]/20 rounded-full"></div>
-           <div className="absolute inset-0 border-4 border-[#1DB954] border-t-transparent rounded-full animate-spin"></div>
+      <div className="min-h-screen flex flex-col items-center justify-center p-6 text-white text-center">
+        <div className="relative w-32 h-32 mb-10">
+           <div className="absolute inset-0 border-[6px] border-[#1DB954]/10 rounded-full"></div>
+           <div className="absolute inset-0 border-[6px] border-[#1DB954] border-t-transparent rounded-full animate-spin"></div>
+           <div className="absolute inset-0 flex items-center justify-center text-[#1DB954] font-black text-xl">
+             {scanStats.found}
+           </div>
         </div>
-        <h2 className="text-3xl font-black mb-2 animate-pulse tracking-tighter uppercase">Scanning Library</h2>
-        <p className="text-gray-500 font-medium">Hunting for playable audio previews...</p>
+        <h2 className="text-4xl font-black mb-4 tracking-tighter uppercase">Analyzing Tracks</h2>
+        <p className="text-gray-400 font-medium mb-8 max-w-xs">
+          Searching for songs with audio samples... <br/>
+          Checked <span className="text-white">{scanStats.scanned}</span> so far.
+        </p>
+        <button 
+          onClick={onCancel}
+          className="px-6 py-2 border border-white/10 rounded-full text-xs font-bold text-gray-500 hover:text-white transition-colors uppercase tracking-widest"
+        >
+          Cancel
+        </button>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center max-w-lg mx-auto">
-        <div className="bg-red-500/10 border-2 border-red-500/20 p-8 rounded-[2.5rem] backdrop-blur-xl">
-          <div className="text-6xl mb-6">🔇</div>
-          <h2 className="text-2xl font-black text-white mb-4 uppercase tracking-tight">Incompatible Playlist</h2>
-          <p className="text-gray-400 mb-8 leading-relaxed">
+      <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center max-w-xl mx-auto">
+        <div className="bg-black/40 border-2 border-red-500/30 p-10 rounded-[3rem] backdrop-blur-3xl shadow-2xl">
+          <div className="w-20 h-20 bg-red-500/20 text-red-500 rounded-3xl flex items-center justify-center text-4xl mx-auto mb-8">
+            <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+          </div>
+          <h2 className="text-3xl font-black text-white mb-4 uppercase tracking-tight">Preview Restriction</h2>
+          <p className="text-gray-400 mb-8 leading-relaxed text-lg">
             {error}
           </p>
+          <div className="bg-white/5 p-6 rounded-2xl mb-10 text-left text-sm">
+            <p className="text-white font-bold mb-2 tracking-wide uppercase text-xs opacity-50">Quick Fix:</p>
+            <ul className="space-y-2 text-gray-300">
+              <li className="flex gap-2"><span>✅</span> Try a "Global Top 50" playlist.</li>
+              <li className="flex gap-2"><span>✅</span> Avoid playlists with very obscure or unreleased tracks.</li>
+            </ul>
+          </div>
           <button 
             onClick={onCancel}
-            className="w-full py-4 bg-white text-black font-black rounded-2xl hover:scale-105 transition-transform active:scale-95"
+            className="w-full py-5 bg-[#1DB954] text-black font-black text-xl rounded-2xl hover:scale-105 transition-transform active:scale-95 shadow-xl shadow-[#1DB954]/20"
           >
             TRY ANOTHER PLAYLIST
           </button>
