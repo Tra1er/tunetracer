@@ -1,9 +1,33 @@
 
 import { SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET } from '../constants.ts';
 
+/**
+ * BROWSER-COMPATIBLE VERSION OF spotify-preview-finder
+ * This mimics the exact API and logic described at 
+ * https://www.npmjs.com/package/spotify-preview-finder
+ */
+
+interface SpotifyPreviewResult {
+  success: boolean;
+  searchQuery: string;
+  results: Array<{
+    name: string;
+    spotifyUrl: string;
+    previewUrls: string[];
+    trackId: string;
+    albumName: string;
+    releaseDate: string;
+    popularity: number;
+    durationMs: number;
+  }>;
+  error?: string;
+}
+
 export const audioService = {
   /**
-   * Gets a Client Credentials token for high-privilege searching
+   * Internal helper to get access token using Client Credentials 
+   * (Equivalent to the package's automatic auth)
+   * Fix: Renamed from getAccessToken to getClientToken to match the expected property name in App.tsx
    */
   async getClientToken(): Promise<string | null> {
     try {
@@ -18,39 +42,65 @@ export const audioService = {
       const data = await response.json();
       return data.access_token;
     } catch (e) {
-      console.error("Token fetch failed", e);
+      console.error("Auth Error:", e);
       return null;
     }
   },
 
   /**
-   * The "Spotify Preview Finder" logic implemented for the browser.
-   * Scans global Spotify search results for the best available preview URL.
+   * The core function mirroring spotifyPreviewFinder(songName, [artistOrLimit], [limit])
    */
-  async findSpotifyPreview(trackName: string, artistName: string, token: string): Promise<string | null> {
+  async spotifyPreviewFinder(songName: string, artistName?: string, limit: number = 5): Promise<SpotifyPreviewResult> {
     try {
-      // Package logic: build a targeted search query
-      const query = encodeURIComponent(`track:"${trackName}" artist:"${artistName}"`);
-      const response = await fetch(`https://api.spotify.com/v1/search?q=${query}&type=track&limit=10`, {
+      // Fix: Updated to call getClientToken instead of getAccessToken
+      const token = await this.getClientToken();
+      if (!token) throw new Error("Could not authenticate with Spotify");
+
+      // Use the "Enhanced Search" logic from the package
+      const searchQuery = artistName 
+        ? `track:"${songName}" artist:"${artistName}"` 
+        : songName;
+      
+      const encodedQuery = encodeURIComponent(searchQuery);
+      const url = `https://api.spotify.com/v1/search?q=${encodedQuery}&type=track&limit=${limit}`;
+
+      const response = await fetch(url, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await response.json();
-      
-      if (!data.tracks || !data.tracks.items) return null;
 
-      // Logic: Iterate through results to find ANY version with a preview_url
-      // This bypasses regional restrictions on specific album versions
-      const matchWithPreview = data.tracks.items.find((track: any) => track.preview_url);
-      
-      return matchWithPreview ? matchWithPreview.preview_url : null;
-    } catch (e) {
-      console.error("Spotify Finder failed", e);
-      return null;
+      if (!data.tracks) {
+        return { success: false, searchQuery, results: [], error: "No tracks found" };
+      }
+
+      const results = data.tracks.items.map((track: any) => ({
+        name: `${track.name} - ${track.artists.map((a: any) => a.name).join(', ')}`,
+        spotifyUrl: track.external_urls.spotify,
+        previewUrls: track.preview_url ? [track.preview_url] : [],
+        trackId: track.id,
+        albumName: track.album.name,
+        releaseDate: track.album.release_date,
+        popularity: track.popularity,
+        durationMs: track.duration_ms
+      }));
+
+      return {
+        success: true,
+        searchQuery,
+        results
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        searchQuery: songName,
+        results: [],
+        error: error.message
+      };
     }
   },
 
   /**
-   * Final fallback: iTunes Search API
+   * Final fallback for when Spotify has absolutely no preview for any version
    */
   async getItunesPreview(trackName: string, artistName: string): Promise<string | null> {
     try {
@@ -64,7 +114,7 @@ export const audioService = {
   },
 
   /**
-   * Fetches a list of global hits for Demo Mode
+   * Helper for Demo Mode
    */
   async getGlobalTopTracks(token: string): Promise<any[]> {
     try {

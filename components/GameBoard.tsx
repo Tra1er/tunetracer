@@ -13,8 +13,7 @@ interface Props {
   onCancel: () => void;
 }
 
-const GameBoard: React.FC<Props> = ({ token, initialTracks, difficulty, totalRounds, onGameOver, onCancel }) => {
-  // Use the larger pool and shuffle it immediately
+const GameBoard: React.FC<Props> = ({ initialTracks, difficulty, totalRounds, onGameOver, onCancel }) => {
   const [tracks] = useState<SpotifyTrack[]>(() => [...initialTracks].sort(() => Math.random() - 0.5));
   const [currentTrack, setCurrentTrack] = useState<SpotifyTrack | null>(null);
   const [options, setOptions] = useState<SpotifyTrack[]>([]);
@@ -27,8 +26,6 @@ const GameBoard: React.FC<Props> = ({ token, initialTracks, difficulty, totalRou
   const [correctCount, setCorrectCount] = useState(0);
   const [round, setRound] = useState(1);
   const [loadingAudio, setLoadingAudio] = useState(false);
-  
-  // Track used indices to guarantee no repetition
   const [usedIndices, setUsedIndices] = useState<Set<number>>(new Set());
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -41,7 +38,6 @@ const GameBoard: React.FC<Props> = ({ token, initialTracks, difficulty, totalRou
       return;
     }
 
-    // Pick a guaranteed fresh track from our 100-song pool
     let trackIndex = Math.floor(Math.random() * tracks.length);
     let attempts = 0;
     while (usedIndices.has(trackIndex) && attempts < tracks.length) {
@@ -49,16 +45,13 @@ const GameBoard: React.FC<Props> = ({ token, initialTracks, difficulty, totalRou
       attempts++;
     }
     
-    // If we've somehow exhausted everything (unlikely with 100 tracks), reset pool
     if (usedIndices.size >= tracks.length) {
-      setUsedIndices(new Set());
+      setUsedIndices(new Set([trackIndex]));
     } else {
       setUsedIndices(prev => new Set(prev).add(trackIndex));
     }
 
     const correct = tracks[trackIndex];
-    
-    // Pick 3 random decoys that are NOT the correct track
     const decoys = tracks
       .filter(t => t.id !== correct.id)
       .sort(() => Math.random() - 0.5)
@@ -73,20 +66,21 @@ const GameBoard: React.FC<Props> = ({ token, initialTracks, difficulty, totalRou
     setSelectedId(null);
     setLoadingAudio(true);
 
-    // MULTI-STAGE AUDIO SEARCH (The "Finder" Logic)
+    // USING THE SPOTIFY-PREVIEW-FINDER LOGIC
     let previewUrl = null;
 
-    // Stage 1: Check if the track object already has it
-    if (correct.preview_url) {
-      previewUrl = correct.preview_url;
+    // 1. Search using the package logic
+    const finderResult = await audioService.spotifyPreviewFinder(correct.name, correct.artists[0].name, 3);
+    
+    if (finderResult.success && finderResult.results.length > 0) {
+      // Find the first result that has a preview URL
+      const bestMatch = finderResult.results.find(r => r.previewUrls.length > 0);
+      if (bestMatch) {
+        previewUrl = bestMatch.previewUrls[0];
+      }
     }
 
-    // Stage 2: Spotify Finder Search (Mimicking spotify-preview-finder package)
-    if (!previewUrl && token) {
-      previewUrl = await audioService.findSpotifyPreview(correct.name, correct.artists[0].name, token);
-    }
-
-    // Stage 3: iTunes Public API Fallback
+    // 2. Final Fallback if Spotify is being difficult
     if (!previewUrl) {
       previewUrl = await audioService.getItunesPreview(correct.name, correct.artists[0].name);
     }
@@ -96,18 +90,16 @@ const GameBoard: React.FC<Props> = ({ token, initialTracks, difficulty, totalRou
       audioRef.current.play().then(() => {
         setLoadingAudio(false);
         startTimer();
-      }).catch((e) => {
-        console.warn("Audio play failed, skipping round", e);
+      }).catch(() => {
         setLoadingAudio(false);
         handleAnswer(null); 
       });
     } else {
-      // If absolutely no audio is found after all stages, skip this song automatically
       setRound(prev => prev + 1);
       startNextRound();
     }
 
-  }, [round, tracks, config.duration, score, streak, correctCount, missedTracks, onGameOver, totalRounds, usedIndices, token]);
+  }, [round, tracks, config.duration, score, streak, correctCount, missedTracks, onGameOver, totalRounds, usedIndices]);
 
   const startTimer = () => {
     if (timerRef.current) clearInterval(timerRef.current);
@@ -150,7 +142,6 @@ const GameBoard: React.FC<Props> = ({ token, initialTracks, difficulty, totalRou
       if (currentTrack) setMissedTracks(prev => [...prev, currentTrack]);
     }
 
-    // Delay slightly before next round so user sees result
     setTimeout(() => {
       setRound(prev => prev + 1);
       startNextRound();
@@ -163,7 +154,6 @@ const GameBoard: React.FC<Props> = ({ token, initialTracks, difficulty, totalRou
     <div className="min-h-screen flex flex-col items-center justify-center p-4 md:p-8 w-full max-w-5xl mx-auto">
       <audio ref={audioRef} preload="auto" />
       
-      {/* Stats Bar */}
       <div className="w-full flex justify-between items-end mb-8 animate-[fadeIn_0.5s_ease-out]">
         <div className="flex flex-col">
           <span className="text-[10px] font-black uppercase tracking-[0.4em] text-gray-500 mb-1">Round</span>
@@ -184,7 +174,6 @@ const GameBoard: React.FC<Props> = ({ token, initialTracks, difficulty, totalRou
         </div>
       </div>
 
-      {/* Main Game Card */}
       <div className="w-full relative glass rounded-[4rem] p-8 md:p-16 overflow-hidden border-2 border-white/5 shadow-2xl">
         <div className="absolute top-0 left-0 w-full h-3 bg-white/5">
           <div 
@@ -194,7 +183,6 @@ const GameBoard: React.FC<Props> = ({ token, initialTracks, difficulty, totalRou
         </div>
 
         <div className="flex flex-col lg:flex-row gap-16 items-center">
-          {/* Audio Visualizer / Album Art Area */}
           <div className="relative w-72 h-72 md:w-96 md:h-96 flex-shrink-0">
             <div className={`w-full h-full relative rounded-[3.5rem] overflow-hidden shadow-2xl transition-all duration-1000 transform ${isAnswered ? 'scale-100 rotate-0' : 'scale-90 -rotate-2 bg-[#181818]'}`}>
               {isAnswered ? (
@@ -204,7 +192,7 @@ const GameBoard: React.FC<Props> = ({ token, initialTracks, difficulty, totalRou
                    {loadingAudio ? (
                       <div className="flex flex-col items-center gap-6">
                         <div className="w-16 h-16 border-4 border-white/5 border-t-[#1DB954] rounded-full animate-spin"></div>
-                        <p className="text-[10px] font-black uppercase tracking-[0.4em] text-gray-500">Searching Spotify...</p>
+                        <p className="text-[10px] font-black uppercase tracking-[0.4em] text-gray-500">Spotify Search...</p>
                       </div>
                    ) : (
                      <div className="flex gap-3 items-end h-24">
@@ -225,7 +213,6 @@ const GameBoard: React.FC<Props> = ({ token, initialTracks, difficulty, totalRou
             )}
           </div>
 
-          {/* Options Grid */}
           <div className="flex-1 w-full grid grid-cols-1 gap-5">
             {options.map((option) => {
               const isCorrect = option.id === currentTrack?.id;
@@ -246,8 +233,6 @@ const GameBoard: React.FC<Props> = ({ token, initialTracks, difficulty, totalRou
                   className={`group relative p-8 rounded-[2rem] transition-all flex items-center gap-6 text-left font-black ${btnClass} transform active:scale-95`}
                 >
                   <span className="text-xl md:text-2xl truncate w-full">{option.name}</span>
-                  {isAnswered && isCorrect && <span className="text-3xl">✅</span>}
-                  {isAnswered && !isCorrect && isSelected && <span className="text-3xl">❌</span>}
                 </button>
               );
             })}

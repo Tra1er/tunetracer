@@ -47,35 +47,43 @@ export const spotifyService = {
 
   async getPlaylistTracks(token: string, playlistId: string): Promise<SpotifyTrack[]> {
     let allTracks: SpotifyTrack[] = [];
-    let offset = 0;
     const limit = 50;
     
-    // Fetch up to 100 tracks to ensure variety and reduce repetition
     try {
-      const firstBatch = await this.fetchWithAuth(
+      // Fetch batch 1 (0-50)
+      const batch1 = await this.fetchWithAuth(
         `https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=${limit}&offset=0`, 
         token
       );
       
-      const processBatch = (data: any) => {
-        return data.items
-          .map((item: any) => item.track)
-          .filter((t: any) => t && t.id && t.name);
-      };
+      const mapTracks = (items: any[]) => items
+        .map((item: any) => item.track)
+        .filter((t: any) => t && t.id && t.name && t.artists && t.artists.length > 0);
 
-      allTracks = processBatch(firstBatch);
+      allTracks = [...mapTracks(batch1.items)];
 
-      if (firstBatch.total > limit) {
-        const secondBatch = await this.fetchWithAuth(
+      // Fetch batch 2 (50-100) if available
+      if (batch1.total > limit) {
+        const batch2 = await this.fetchWithAuth(
           `https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=${limit}&offset=${limit}`, 
           token
         );
-        allTracks = [...allTracks, ...processBatch(secondBatch)];
+        allTracks = [...allTracks, ...mapTracks(batch2.items)];
+      }
+
+      // Fetch batch 3 (100-150) for maximum variety
+      if (batch1.total > limit * 2) {
+        const batch3 = await this.fetchWithAuth(
+          `https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=${limit}&offset=${limit * 2}`, 
+          token
+        );
+        allTracks = [...allTracks, ...mapTracks(batch3.items)];
       }
     } catch (e) {
-      console.error("Failed to load tracks", e);
+      console.error("Variety Fetch Failed", e);
     }
 
-    return allTracks;
+    // Deduplicate and return
+    return Array.from(new Map(allTracks.map(t => [t.id, t])).values());
   }
 };
