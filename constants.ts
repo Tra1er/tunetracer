@@ -1,9 +1,9 @@
 
-// FOR DEVELOPERS: Replace with your actual Spotify Client ID
-// To get one, visit: https://developer.spotify.com/dashboard
+// Your Spotify Client ID
 export const SPOTIFY_CLIENT_ID = '648704f47d164b5ab2f22c8d71af6968'; 
 
-// Use the current URL as redirect URI (Spotify Dashboard must match this)
+// This dynamically detects if you are on localhost or your Vercel URL.
+// Ensure 'https://tunetracer-lhx4.vercel.app/' is added to your Spotify Dashboard Redirect URIs.
 export const REDIRECT_URI = window.location.origin + window.location.pathname;
 
 export const SCOPES = [

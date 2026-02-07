@@ -1,10 +1,10 @@
 
 import React from 'react';
-import { AUTH_URL, SPOTIFY_CLIENT_ID } from '../constants';
+import { AUTH_URL, SPOTIFY_CLIENT_ID } from '../constants.ts';
 
 const Auth: React.FC = () => {
-  // Fix: Cast SPOTIFY_CLIENT_ID to string to prevent TypeScript from complaining about comparing two different literal types that don't overlap.
-  const isDefaultId = (SPOTIFY_CLIENT_ID as string) === 'your_client_id_here';
+  // Check if the user has replaced the placeholder
+  const isDefaultId = (SPOTIFY_CLIENT_ID as string) === 'your_client_id_here' || !SPOTIFY_CLIENT_ID;
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-6 spotify-gradient overflow-hidden relative">
@@ -29,7 +29,7 @@ const Auth: React.FC = () => {
           <div className="bg-red-500/20 border border-red-500/50 p-6 rounded-2xl mb-6">
             <p className="text-red-200 font-bold mb-2">Setup Required!</p>
             <p className="text-red-100 text-sm">
-              Please update <code className="bg-black/40 px-1 rounded">constants.ts</code> with your actual <b>Spotify Client ID</b> from the Spotify Developer Dashboard.
+              Please ensure your Client ID is correctly set in <code>constants.ts</code>.
             </p>
           </div>
         ) : (
