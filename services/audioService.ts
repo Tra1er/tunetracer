@@ -3,7 +3,7 @@ import { SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET } from '../constants.ts';
 
 export const audioService = {
   /**
-   * Gets a Client Credentials token for Demo Mode (no user login required)
+   * Gets a Client Credentials token for high-privilege searching
    */
   async getClientToken(): Promise<string | null> {
     try {
@@ -18,33 +18,39 @@ export const audioService = {
       const data = await response.json();
       return data.access_token;
     } catch (e) {
+      console.error("Token fetch failed", e);
       return null;
     }
   },
 
   /**
-   * Mimics spotify-preview-finder logic:
-   * Searches Spotify for the track to find ANY version with a preview_url.
+   * The "Spotify Preview Finder" logic implemented for the browser.
+   * Scans global Spotify search results for the best available preview URL.
    */
-  async getSpotifyPreview(trackName: string, artistName: string, token: string): Promise<string | null> {
-    if (!token || token === "DEMO_MODE") return null;
+  async findSpotifyPreview(trackName: string, artistName: string, token: string): Promise<string | null> {
     try {
-      const query = encodeURIComponent(`track:${trackName} artist:${artistName}`);
-      const response = await fetch(`https://api.spotify.com/v1/search?q=${query}&type=track&limit=5`, {
+      // Package logic: build a targeted search query
+      const query = encodeURIComponent(`track:"${trackName}" artist:"${artistName}"`);
+      const response = await fetch(`https://api.spotify.com/v1/search?q=${query}&type=track&limit=10`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await response.json();
       
-      // Look for the first result that has a preview_url
-      const bestMatch = data.tracks?.items?.find((t: any) => t.preview_url);
-      return bestMatch?.preview_url || null;
+      if (!data.tracks || !data.tracks.items) return null;
+
+      // Logic: Iterate through results to find ANY version with a preview_url
+      // This bypasses regional restrictions on specific album versions
+      const matchWithPreview = data.tracks.items.find((track: any) => track.preview_url);
+      
+      return matchWithPreview ? matchWithPreview.preview_url : null;
     } catch (e) {
+      console.error("Spotify Finder failed", e);
       return null;
     }
   },
 
   /**
-   * Ultimate fallback: iTunes Search API
+   * Final fallback: iTunes Search API
    */
   async getItunesPreview(trackName: string, artistName: string): Promise<string | null> {
     try {
@@ -58,7 +64,7 @@ export const audioService = {
   },
 
   /**
-   * Fetches a list of global hits using Client Credentials
+   * Fetches a list of global hits for Demo Mode
    */
   async getGlobalTopTracks(token: string): Promise<any[]> {
     try {

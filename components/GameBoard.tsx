@@ -14,6 +14,7 @@ interface Props {
 }
 
 const GameBoard: React.FC<Props> = ({ token, initialTracks, difficulty, totalRounds, onGameOver, onCancel }) => {
+  // Use the larger pool and shuffle it immediately
   const [tracks] = useState<SpotifyTrack[]>(() => [...initialTracks].sort(() => Math.random() - 0.5));
   const [currentTrack, setCurrentTrack] = useState<SpotifyTrack | null>(null);
   const [options, setOptions] = useState<SpotifyTrack[]>([]);
@@ -26,6 +27,8 @@ const GameBoard: React.FC<Props> = ({ token, initialTracks, difficulty, totalRou
   const [correctCount, setCorrectCount] = useState(0);
   const [round, setRound] = useState(1);
   const [loadingAudio, setLoadingAudio] = useState(false);
+  
+  // Track used indices to guarantee no repetition
   const [usedIndices, setUsedIndices] = useState<Set<number>>(new Set());
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -38,7 +41,7 @@ const GameBoard: React.FC<Props> = ({ token, initialTracks, difficulty, totalRou
       return;
     }
 
-    // Pick a fresh track
+    // Pick a guaranteed fresh track from our 100-song pool
     let trackIndex = Math.floor(Math.random() * tracks.length);
     let attempts = 0;
     while (usedIndices.has(trackIndex) && attempts < tracks.length) {
@@ -46,9 +49,16 @@ const GameBoard: React.FC<Props> = ({ token, initialTracks, difficulty, totalRou
       attempts++;
     }
     
-    setUsedIndices(prev => new Set(prev).add(trackIndex));
+    // If we've somehow exhausted everything (unlikely with 100 tracks), reset pool
+    if (usedIndices.size >= tracks.length) {
+      setUsedIndices(new Set());
+    } else {
+      setUsedIndices(prev => new Set(prev).add(trackIndex));
+    }
+
     const correct = tracks[trackIndex];
     
+    // Pick 3 random decoys that are NOT the correct track
     const decoys = tracks
       .filter(t => t.id !== correct.id)
       .sort(() => Math.random() - 0.5)
@@ -63,15 +73,20 @@ const GameBoard: React.FC<Props> = ({ token, initialTracks, difficulty, totalRou
     setSelectedId(null);
     setLoadingAudio(true);
 
-    // MULTI-STAGE AUDIO FETCHING
-    let previewUrl = correct.preview_url;
+    // MULTI-STAGE AUDIO SEARCH (The "Finder" Logic)
+    let previewUrl = null;
 
-    // 1. Try Spotify Preview Finder (Search logic)
-    if (!previewUrl) {
-      previewUrl = await audioService.getSpotifyPreview(correct.name, correct.artists[0].name, token);
+    // Stage 1: Check if the track object already has it
+    if (correct.preview_url) {
+      previewUrl = correct.preview_url;
     }
 
-    // 2. Try iTunes Fallback
+    // Stage 2: Spotify Finder Search (Mimicking spotify-preview-finder package)
+    if (!previewUrl && token) {
+      previewUrl = await audioService.findSpotifyPreview(correct.name, correct.artists[0].name, token);
+    }
+
+    // Stage 3: iTunes Public API Fallback
     if (!previewUrl) {
       previewUrl = await audioService.getItunesPreview(correct.name, correct.artists[0].name);
     }
@@ -81,12 +96,13 @@ const GameBoard: React.FC<Props> = ({ token, initialTracks, difficulty, totalRou
       audioRef.current.play().then(() => {
         setLoadingAudio(false);
         startTimer();
-      }).catch(() => {
+      }).catch((e) => {
+        console.warn("Audio play failed, skipping round", e);
         setLoadingAudio(false);
         handleAnswer(null); 
       });
     } else {
-      // If still no audio, skip this round gracefully
+      // If absolutely no audio is found after all stages, skip this song automatically
       setRound(prev => prev + 1);
       startNextRound();
     }
@@ -134,6 +150,7 @@ const GameBoard: React.FC<Props> = ({ token, initialTracks, difficulty, totalRou
       if (currentTrack) setMissedTracks(prev => [...prev, currentTrack]);
     }
 
+    // Delay slightly before next round so user sees result
     setTimeout(() => {
       setRound(prev => prev + 1);
       startNextRound();
@@ -146,50 +163,53 @@ const GameBoard: React.FC<Props> = ({ token, initialTracks, difficulty, totalRou
     <div className="min-h-screen flex flex-col items-center justify-center p-4 md:p-8 w-full max-w-5xl mx-auto">
       <audio ref={audioRef} preload="auto" />
       
-      <div className="w-full flex justify-between items-end mb-8">
+      {/* Stats Bar */}
+      <div className="w-full flex justify-between items-end mb-8 animate-[fadeIn_0.5s_ease-out]">
         <div className="flex flex-col">
-          <span className="text-xs font-black uppercase tracking-[0.2em] text-gray-500">Round</span>
+          <span className="text-[10px] font-black uppercase tracking-[0.4em] text-gray-500 mb-1">Round</span>
           <div className="flex items-baseline gap-2">
-            <span className="text-4xl font-black text-white">{round}</span>
+            <span className="text-5xl font-black text-white">{round}</span>
             <span className="text-xl text-gray-600 font-bold">/ {totalRounds}</span>
           </div>
         </div>
 
-        <div className="flex flex-col items-center glass px-8 py-3 rounded-2xl">
-          <span className="text-[10px] font-black uppercase tracking-[0.3em] text-[#1DB954]">Score</span>
-          <span className="text-4xl font-black text-white tabular-nums">{score.toLocaleString()}</span>
+        <div className="flex flex-col items-center glass px-12 py-4 rounded-[2rem] border-2 border-white/5 shadow-xl">
+          <span className="text-[10px] font-black uppercase tracking-[0.4em] text-[#1DB954] mb-1">Score</span>
+          <span className="text-5xl font-black text-white tabular-nums">{score.toLocaleString()}</span>
         </div>
 
         <div className="flex flex-col items-end">
-          <span className="text-xs font-black uppercase tracking-[0.2em] text-gray-500">Streak</span>
-          <span className={`text-4xl font-black ${streak > 0 ? 'text-yellow-400' : 'text-gray-700'}`}>{streak}</span>
+          <span className="text-[10px] font-black uppercase tracking-[0.4em] text-gray-500 mb-1">Streak</span>
+          <span className={`text-5xl font-black transition-colors ${streak > 0 ? 'text-yellow-400' : 'text-gray-700'}`}>{streak}</span>
         </div>
       </div>
 
-      <div className="w-full relative glass rounded-[40px] p-8 md:p-12 overflow-hidden border-2 border-white/5 shadow-2xl">
-        <div className="absolute top-0 left-0 w-full h-2 bg-white/5">
+      {/* Main Game Card */}
+      <div className="w-full relative glass rounded-[4rem] p-8 md:p-16 overflow-hidden border-2 border-white/5 shadow-2xl">
+        <div className="absolute top-0 left-0 w-full h-3 bg-white/5">
           <div 
             className={`h-full transition-all duration-100 ease-linear ${timeLeft < 3 ? 'bg-red-500' : 'bg-[#1DB954]'}`}
             style={{ width: `${progressPercent}%` }}
           />
         </div>
 
-        <div className="flex flex-col lg:flex-row gap-12 items-center">
-          <div className="relative w-64 h-64 md:w-80 md:h-80 flex-shrink-0">
-            <div className={`w-full h-full relative rounded-[3rem] overflow-hidden shadow-2xl transition-all duration-700 transform ${isAnswered ? 'scale-100' : 'scale-90 bg-[#181818]'}`}>
+        <div className="flex flex-col lg:flex-row gap-16 items-center">
+          {/* Audio Visualizer / Album Art Area */}
+          <div className="relative w-72 h-72 md:w-96 md:h-96 flex-shrink-0">
+            <div className={`w-full h-full relative rounded-[3.5rem] overflow-hidden shadow-2xl transition-all duration-1000 transform ${isAnswered ? 'scale-100 rotate-0' : 'scale-90 -rotate-2 bg-[#181818]'}`}>
               {isAnswered ? (
-                <img src={currentTrack?.album.images[0].url} alt="Album Art" className="w-full h-full object-cover animate-[fadeIn_0.3s_ease-out]" />
+                <img src={currentTrack?.album.images[0].url} alt="Album Art" className="w-full h-full object-cover animate-[fadeIn_0.4s_ease-out]" />
               ) : (
-                <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center border-2 border-white/10">
+                <div className="w-full h-full flex flex-col items-center justify-center p-12 text-center border-2 border-white/5">
                    {loadingAudio ? (
-                      <div className="flex flex-col items-center gap-4">
-                        <div className="w-12 h-12 border-4 border-white/10 border-t-[#1DB954] rounded-full animate-spin"></div>
-                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Scanning Spotify...</p>
+                      <div className="flex flex-col items-center gap-6">
+                        <div className="w-16 h-16 border-4 border-white/5 border-t-[#1DB954] rounded-full animate-spin"></div>
+                        <p className="text-[10px] font-black uppercase tracking-[0.4em] text-gray-500">Searching Spotify...</p>
                       </div>
                    ) : (
-                     <div className="flex gap-2 items-end h-16">
-                       {[...Array(5)].map((_, i) => (
-                         <div key={i} className="w-2 bg-[#1DB954] rounded-full animate-[bounce_1s_infinite]" style={{ height: `${30 + Math.random() * 70}%`, animationDelay: `${i * 0.1}s` }}></div>
+                     <div className="flex gap-3 items-end h-24">
+                       {[...Array(6)].map((_, i) => (
+                         <div key={i} className="w-3 bg-[#1DB954] rounded-full animate-[bounce_1.2s_infinite]" style={{ height: `${20 + Math.random() * 80}%`, animationDelay: `${i * 0.1}s` }}></div>
                        ))}
                      </div>
                    )}
@@ -198,23 +218,24 @@ const GameBoard: React.FC<Props> = ({ token, initialTracks, difficulty, totalRou
             </div>
             
             {isAnswered && (
-              <div className="mt-6 text-center animate-[fadeIn_0.5s_ease-out]">
-                <h3 className="text-2xl font-black text-white truncate">{currentTrack?.name}</h3>
-                <p className="text-gray-400 font-bold text-lg">{currentTrack?.artists[0].name}</p>
+              <div className="mt-8 text-center animate-[pop_0.4s_ease-out]">
+                <h3 className="text-3xl font-black text-white truncate leading-tight">{currentTrack?.name}</h3>
+                <p className="text-gray-400 font-bold text-xl mt-1">{currentTrack?.artists[0].name}</p>
               </div>
             )}
           </div>
 
-          <div className="flex-1 w-full grid grid-cols-1 gap-4">
+          {/* Options Grid */}
+          <div className="flex-1 w-full grid grid-cols-1 gap-5">
             {options.map((option) => {
               const isCorrect = option.id === currentTrack?.id;
               const isSelected = option.id === selectedId;
-              let btnClass = "bg-white/5 border-2 border-white/5 hover:bg-white/10";
+              let btnClass = "bg-white/5 border-2 border-white/5 hover:bg-white/10 hover:scale-[1.02]";
               
               if (isAnswered) {
-                if (isCorrect) btnClass = "bg-[#1DB954] border-[#1DB954] text-black shadow-lg";
-                else if (isSelected) btnClass = "bg-red-500 border-red-500 text-white";
-                else btnClass = "opacity-30 grayscale";
+                if (isCorrect) btnClass = "bg-[#1DB954] border-[#1DB954] text-black shadow-lg scale-105 z-10";
+                else if (isSelected) btnClass = "bg-red-500 border-red-500 text-white opacity-100";
+                else btnClass = "opacity-20 grayscale scale-95 pointer-events-none";
               }
 
               return (
@@ -222,9 +243,11 @@ const GameBoard: React.FC<Props> = ({ token, initialTracks, difficulty, totalRou
                   key={option.id}
                   disabled={isAnswered || loadingAudio}
                   onClick={() => handleAnswer(option.id)}
-                  className={`group relative p-6 rounded-2xl transition-all flex items-center gap-4 text-left font-bold ${btnClass} transform ${!isAnswered && !loadingAudio && 'hover:scale-[1.02] active:scale-[0.98]'}`}
+                  className={`group relative p-8 rounded-[2rem] transition-all flex items-center gap-6 text-left font-black ${btnClass} transform active:scale-95`}
                 >
-                  <span className="text-lg truncate">{option.name}</span>
+                  <span className="text-xl md:text-2xl truncate w-full">{option.name}</span>
+                  {isAnswered && isCorrect && <span className="text-3xl">✅</span>}
+                  {isAnswered && !isCorrect && isSelected && <span className="text-3xl">❌</span>}
                 </button>
               );
             })}
@@ -232,12 +255,17 @@ const GameBoard: React.FC<Props> = ({ token, initialTracks, difficulty, totalRou
         </div>
       </div>
 
-      <button onClick={onCancel} className="mt-12 text-gray-500 hover:text-white transition-colors text-xs font-bold uppercase tracking-widest">
-        End Game
+      <button onClick={onCancel} className="mt-16 text-gray-500 hover:text-white transition-colors text-[10px] font-black uppercase tracking-[0.5em]">
+        End Session
       </button>
 
       <style>{`
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes pop { 
+          0% { opacity: 0; transform: scale(0.8); } 
+          70% { transform: scale(1.05); } 
+          100% { opacity: 1; transform: scale(1); } 
+        }
       `}</style>
     </div>
   );
