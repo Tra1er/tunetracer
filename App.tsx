@@ -6,9 +6,10 @@ import PlaylistSelector from './components/PlaylistSelector.tsx';
 import GameBoard from './components/GameBoard.tsx';
 import GameOver from './components/GameOver.tsx';
 import DifficultySelector from './components/DifficultySelector.tsx';
+import { SPOTIFY_CLIENT_ID, REDIRECT_URI } from './constants.ts';
 
 const App: React.FC = () => {
-  const [token, setToken] = useState<string | null>(null);
+  const [token, setToken] = useState<string | null>(localStorage.getItem('spotify_token'));
   const [authError, setAuthError] = useState<string | null>(null);
   const [selectedPlaylist, setSelectedPlaylist] = useState<SpotifyPlaylist | null>(null);
   const [difficulty, setDifficulty] = useState<GameDifficulty | null>(null);
@@ -16,22 +17,47 @@ const App: React.FC = () => {
   const [gameStarted, setGameStarted] = useState(false);
 
   useEffect(() => {
-    const hash = window.location.hash;
-    if (hash) {
-      const params = new URLSearchParams(hash.substring(1));
-      const accessToken = params.get('access_token');
-      const error = params.get('error');
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    const error = params.get('error');
 
-      if (accessToken) {
-        setToken(accessToken);
-        setAuthError(null);
-        window.history.replaceState(null, '', window.location.pathname);
-      } else if (error) {
-        setAuthError(error);
-        window.history.replaceState(null, '', window.location.pathname);
-      }
+    if (code) {
+      exchangeCodeForToken(code);
+      window.history.replaceState(null, '', window.location.pathname);
+    } else if (error) {
+      setAuthError(error);
+      window.history.replaceState(null, '', window.location.pathname);
     }
   }, []);
+
+  const exchangeCodeForToken = async (code: string) => {
+    const codeVerifier = localStorage.getItem('code_verifier');
+    
+    try {
+      const response = await fetch('https://accounts.spotify.com/api/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          client_id: SPOTIFY_CLIENT_ID,
+          grant_type: 'authorization_code',
+          code: code,
+          redirect_uri: REDIRECT_URI,
+          code_verifier: codeVerifier || '',
+        }),
+      });
+
+      const data = await response.json();
+      if (data.access_token) {
+        setToken(data.access_token);
+        localStorage.setItem('spotify_token', data.access_token);
+        setAuthError(null);
+      } else {
+        setAuthError(data.error_description || 'Failed to get token');
+      }
+    } catch (err) {
+      setAuthError('Network error during token exchange');
+    }
+  };
 
   const handlePlaylistSelect = (playlist: SpotifyPlaylist) => {
     setSelectedPlaylist(playlist);
@@ -52,6 +78,12 @@ const App: React.FC = () => {
     setSelectedPlaylist(null);
     setDifficulty(null);
     setGameStarted(false);
+  };
+
+  const logout = () => {
+    setToken(null);
+    localStorage.removeItem('spotify_token');
+    window.location.search = '';
   };
 
   if (!token) return <Auth error={authError} />;
@@ -84,7 +116,7 @@ const App: React.FC = () => {
       </header>
       <PlaylistSelector token={token} onSelect={handlePlaylistSelect} />
       <button 
-        onClick={() => { setToken(null); window.location.hash = ''; }}
+        onClick={logout}
         className="mt-12 text-gray-500 hover:text-white transition-colors text-sm font-semibold uppercase tracking-widest"
       >
         Logout

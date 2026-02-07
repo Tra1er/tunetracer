@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { AUTH_URL, SPOTIFY_CLIENT_ID, REDIRECT_URI } from '../constants.ts';
+import { getAuthUrl, SPOTIFY_CLIENT_ID, REDIRECT_URI } from '../constants.ts';
 
 interface AuthProps {
   error?: string | null;
@@ -8,6 +8,32 @@ interface AuthProps {
 
 const Auth: React.FC<AuthProps> = ({ error }) => {
   const isDefaultId = (SPOTIFY_CLIENT_ID as string) === 'your_client_id_here' || !SPOTIFY_CLIENT_ID;
+
+  const generateCodeVerifier = (length: number) => {
+    let text = '';
+    let possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    for (let i = 0; i < length; i++) {
+      text += possible.charAt(Math.floor(Math.random() * possible.length));
+    }
+    return text;
+  };
+
+  const generateCodeChallenge = async (codeVerifier: string) => {
+    const data = new TextEncoder().encode(codeVerifier);
+    const digest = await window.crypto.subtle.digest('SHA-256', data);
+    return btoa(String.fromCharCode.apply(null, [...new Uint8Array(digest)]))
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+  };
+
+  const handleLogin = async () => {
+    const verifier = generateCodeVerifier(128);
+    const challenge = await generateCodeChallenge(verifier);
+
+    localStorage.setItem('code_verifier', verifier);
+    window.location.href = getAuthUrl(challenge);
+  };
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-6 spotify-gradient overflow-hidden relative">
@@ -24,24 +50,41 @@ const Auth: React.FC<AuthProps> = ({ error }) => {
         <h1 className="text-6xl font-black text-white mb-6 tracking-tighter leading-none">
           TUNE <br/> TRACER
         </h1>
-        <p className="text-xl text-gray-300 mb-10 font-medium">
-          The ultimate Spotify guessing game.
-        </p>
 
-        {error && (
-          <div className="bg-red-500/20 border-2 border-red-500/50 p-6 rounded-3xl mb-8 text-left animate-[shake_0.5s_ease-in-out]">
-            <p className="text-red-200 font-black uppercase text-xs tracking-widest mb-2 flex items-center gap-2">
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd"></path></svg>
-              Login Error: {error}
-            </p>
-            <p className="text-red-100 text-sm font-medium mb-3">
-              Spotify rejected the login request. This usually means "Implicit Grant" is disabled or the Redirect URI is missing.
-            </p>
-            <div className="bg-black/30 p-3 rounded-xl text-xs font-mono text-gray-300 break-all border border-white/5">
-              Ensure this is in your Spotify Dashboard:<br/>
-              <span className="text-[#1DB954]">{REDIRECT_URI}</span>
+        {error ? (
+          <div className="bg-black/40 border-2 border-red-500/50 p-6 rounded-[2rem] mb-8 text-left animate-[shake_0.5s_ease-in-out] backdrop-blur-xl">
+            <h3 className="text-red-400 font-black uppercase text-sm tracking-widest mb-4 flex items-center gap-2">
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd"></path></svg>
+              Auth Setup Required
+            </h3>
+            
+            <div className="space-y-4 text-sm font-medium text-gray-200">
+              <p>The error <code className="bg-red-500/20 text-red-200 px-1 rounded">{error}</code> is likely due to the Redirect URI not matching exactly.</p>
+              
+              <div className="bg-white/5 p-4 rounded-2xl border border-white/10">
+                <p className="text-[#1DB954] font-bold mb-2">Double check Dashboard:</p>
+                <ol className="list-decimal list-inside space-y-2 opacity-90">
+                  <li>Go to your app in <a href="https://developer.spotify.com/dashboard" target="_blank" className="underline hover:text-white">Spotify Dashboard</a></li>
+                  <li>Click <b>Settings</b> (top right)</li>
+                  <li>Ensure the Redirect URI is exactly:</li>
+                </ol>
+                <div className="mt-3 p-2 bg-black/40 rounded-lg text-xs font-mono text-[#1DB954] break-all select-all">
+                  {REDIRECT_URI}
+                </div>
+              </div>
             </div>
+
+            <button 
+              onClick={handleLogin}
+              className="mt-6 w-full py-3 bg-red-500/20 hover:bg-red-500/30 text-red-200 rounded-xl font-bold transition-colors"
+            >
+              Try Again
+            </button>
           </div>
+        ) : (
+          <p className="text-xl text-gray-300 mb-10 font-medium">
+            The ultimate Spotify guessing game.
+          </p>
         )}
 
         {isDefaultId ? (
@@ -51,16 +94,16 @@ const Auth: React.FC<AuthProps> = ({ error }) => {
               Please ensure your Client ID is correctly set in <code>constants.ts</code>.
             </p>
           </div>
-        ) : (
-          <a
-            href={AUTH_URL}
-            className="group flex items-center justify-center gap-3 bg-[#1DB954] hover:bg-[#1ed760] text-black text-xl font-bold py-5 px-10 rounded-full transition-all hover:scale-105 active:scale-95 shadow-xl shadow-[#1DB954]/20"
+        ) : !error && (
+          <button
+            onClick={handleLogin}
+            className="group flex items-center justify-center gap-3 bg-[#1DB954] hover:bg-[#1ed760] text-black text-xl font-bold py-5 px-10 rounded-full transition-all hover:scale-105 active:scale-95 shadow-xl shadow-[#1DB954]/20 w-full"
           >
             LOGIN WITH SPOTIFY
             <svg className="w-6 h-6 transform group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
             </svg>
-          </a>
+          </button>
         )}
 
         <div className="mt-12 flex items-center justify-center gap-8 text-gray-500 text-sm font-semibold tracking-widest uppercase">
@@ -74,13 +117,6 @@ const Auth: React.FC<AuthProps> = ({ error }) => {
           </div>
         </div>
       </div>
-      <style>{`
-        @keyframes shake {
-          0%, 100% { transform: translateX(0); }
-          25% { transform: translateX(-5px); }
-          75% { transform: translateX(5px); }
-        }
-      `}</style>
     </div>
   );
 };
