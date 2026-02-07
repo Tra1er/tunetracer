@@ -1,12 +1,13 @@
 
 import React, { useState, useEffect } from 'react';
-import { SpotifyPlaylist, GameDifficulty, GameResult } from './types.ts';
+import { SpotifyPlaylist, GameDifficulty, GameResult, SpotifyTrack } from './types.ts';
 import Auth from './components/Auth.tsx';
 import PlaylistSelector from './components/PlaylistSelector.tsx';
 import GameBoard from './components/GameBoard.tsx';
 import GameOver from './components/GameOver.tsx';
 import DifficultySelector from './components/DifficultySelector.tsx';
 import { SPOTIFY_CLIENT_ID, REDIRECT_URI } from './constants.ts';
+import { audioService } from './services/audioService.ts';
 
 const App: React.FC = () => {
   const [token, setToken] = useState<string | null>(localStorage.getItem('spotify_token'));
@@ -15,6 +16,7 @@ const App: React.FC = () => {
   const [difficulty, setDifficulty] = useState<GameDifficulty | null>(null);
   const [gameResult, setGameResult] = useState<GameResult | null>(null);
   const [gameStarted, setGameStarted] = useState(false);
+  const [isDemoMode, setIsDemoMode] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -51,6 +53,7 @@ const App: React.FC = () => {
         setToken(data.access_token);
         localStorage.setItem('spotify_token', data.access_token);
         setAuthError(null);
+        setIsDemoMode(false);
       } else {
         setAuthError(data.error_description || 'Failed to get token');
       }
@@ -80,13 +83,27 @@ const App: React.FC = () => {
     setGameStarted(false);
   };
 
+  const startDemoMode = async () => {
+    setIsDemoMode(true);
+    const topHits = await audioService.getTopHits();
+    const demoPlaylist: SpotifyPlaylist = {
+      id: 'demo-global-hits',
+      name: 'Global Top Hits (Demo)',
+      images: [{ url: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=600&h=600&fit=crop' }],
+      tracks: { total: topHits.length }
+    };
+    setSelectedPlaylist(demoPlaylist);
+    setToken("DEMO_MODE");
+  };
+
   const logout = () => {
     setToken(null);
     localStorage.removeItem('spotify_token');
+    setIsDemoMode(false);
     window.location.search = '';
   };
 
-  if (!token) return <Auth error={authError} />;
+  if (!token) return <Auth error={authError} onDemoMode={startDemoMode} />;
 
   if (gameResult) {
     return <GameOver result={gameResult} onRestart={resetGame} />;
@@ -100,17 +117,21 @@ const App: React.FC = () => {
         difficulty={difficulty} 
         onGameOver={handleGameOver} 
         onCancel={resetGame}
+        isDemo={isDemoMode}
       />
     );
   }
 
   if (selectedPlaylist && !difficulty) {
-    return <DifficultySelector onSelect={handleDifficultySelect} onBack={() => setSelectedPlaylist(null)} />;
+    return <DifficultySelector onSelect={handleDifficultySelect} onBack={() => {
+      setSelectedPlaylist(null);
+      if (isDemoMode) logout();
+    }} />;
   }
 
   return (
     <div className="min-h-screen p-4 md:p-8 flex flex-col items-center">
-      <header className="mb-12 text-center">
+      <header className="mb-12 text-center animate-[fadeIn_0.5s_ease-out]">
         <h1 className="text-5xl font-black text-white mb-2 tracking-tighter">TuneTracer</h1>
         <p className="text-gray-400 font-medium">Select a playlist to start the challenge</p>
       </header>
@@ -119,7 +140,7 @@ const App: React.FC = () => {
         onClick={logout}
         className="mt-12 text-gray-500 hover:text-white transition-colors text-sm font-semibold uppercase tracking-widest"
       >
-        Logout
+        {isDemoMode ? "Exit Quick Play" : "Logout"}
       </button>
     </div>
   );
