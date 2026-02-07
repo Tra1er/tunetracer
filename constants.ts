@@ -2,9 +2,9 @@
 // Your Spotify Client ID
 export const SPOTIFY_CLIENT_ID = '648704f47d164b5ab2f22c8d71af6968'; 
 
-// This dynamically detects if you are on localhost or your Vercel URL.
-// Ensure 'https://tunetracer-lhx4.vercel.app/' is added to your Spotify Dashboard Redirect URIs.
-export const REDIRECT_URI = window.location.origin + window.location.pathname;
+// We force the origin and check for trailing slash to maintain consistency with Dashboard settings
+const baseUri = window.location.origin + window.location.pathname;
+export const REDIRECT_URI = baseUri.endsWith('/') ? baseUri : baseUri + '/';
 
 export const SCOPES = [
   'playlist-read-private',

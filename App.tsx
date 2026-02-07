@@ -9,6 +9,7 @@ import DifficultySelector from './components/DifficultySelector.tsx';
 
 const App: React.FC = () => {
   const [token, setToken] = useState<string | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [selectedPlaylist, setSelectedPlaylist] = useState<SpotifyPlaylist | null>(null);
   const [difficulty, setDifficulty] = useState<GameDifficulty | null>(null);
   const [gameResult, setGameResult] = useState<GameResult | null>(null);
@@ -17,10 +18,16 @@ const App: React.FC = () => {
   useEffect(() => {
     const hash = window.location.hash;
     if (hash) {
-      const token = new URLSearchParams(hash.substring(1)).get('access_token');
-      if (token) {
-        setToken(token);
-        // Clear hash from URL without reloading
+      const params = new URLSearchParams(hash.substring(1));
+      const accessToken = params.get('access_token');
+      const error = params.get('error');
+
+      if (accessToken) {
+        setToken(accessToken);
+        setAuthError(null);
+        window.history.replaceState(null, '', window.location.pathname);
+      } else if (error) {
+        setAuthError(error);
         window.history.replaceState(null, '', window.location.pathname);
       }
     }
@@ -47,7 +54,7 @@ const App: React.FC = () => {
     setGameStarted(false);
   };
 
-  if (!token) return <Auth />;
+  if (!token) return <Auth error={authError} />;
 
   if (gameResult) {
     return <GameOver result={gameResult} onRestart={resetGame} />;
