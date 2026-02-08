@@ -34,95 +34,77 @@ const GameBoard: React.FC<Props> = ({ initialTracks, difficulty, totalRounds, on
   const timerRef = useRef<number | null>(null);
   const config = DIFFICULTY_CONFIG[difficulty];
 
-  const startNextRound = useCallback(async () => {
-    // If we've completed all rounds, end game
+  /**
+   * Robust round initiator that finds a playable track using an internal loop.
+   */
+  const initiateRound = useCallback(async () => {
     if (round > totalRounds) {
       onGameOver({ score, streak, correctAnswers: correctCount, missedTracks });
       return;
     }
 
-    // Selection Logic: Find a fresh track index from the pool
-    let trackIndex = Math.floor(Math.random() * tracks.length);
+    setLoadingAudio(true);
+    let playableTrackFound = false;
     let attempts = 0;
-    
-    // Use a temporary local set to check against during the retry loop
-    const alreadyTriedInThisSearch = new Set<number>();
+    const maxGlobalAttempts = tracks.length;
 
-    const findPlayableTrack = async () => {
-      // Find an index we haven't successfully used in a previous round
-      while (usedIndices.has(trackIndex) && attempts < tracks.length) {
+    while (!playableTrackFound && attempts < maxGlobalAttempts) {
+      let trackIndex = Math.floor(Math.random() * tracks.length);
+      
+      // Prevent picking same track twice in a session
+      while (usedIndices.has(trackIndex) && usedIndices.size < tracks.length) {
         trackIndex = (trackIndex + 1) % tracks.length;
-        attempts++;
       }
 
-      // If we've literally tried every single track in the playlist, reset the pool
-      if (usedIndices.size >= tracks.length) {
-        setUsedIndices(new Set());
-        // recursive call to findPlayableTrack might be safer but let's just proceed with fresh state
-      }
+      const candidate = tracks[trackIndex];
+      setStatusMessage(`Scanning Catalog: ${candidate.name.split(' (')[0]}...`);
 
-      const correct = tracks[trackIndex];
+      // CRAWL FOR PREVIEW
+      const result = await audioService.spotifyPreviewFinder(candidate.name, candidate.artists[0].name);
       
-      // Update local state for visual feedback, but we haven't started round yet
-      setLoadingAudio(true);
-      setStatusMessage(`Searching Catalog for ${correct.name.split(' (')[0]}...`);
-
-      // USING SPOTIFY-PREVIEW-FINDER LOGIC
-      const result = await audioService.spotifyPreviewFinder(correct.name, correct.artists[0].name);
-      
-      let previewUrl = null;
-      if (result.success && result.results.length > 0) {
-        previewUrl = result.results[0].previewUrls[0];
-      }
-
-      if (previewUrl && audioRef.current) {
-        // Success! We found a preview. Set up the round.
+      if (result.success && result.results[0].previewUrls[0]) {
+        // SUCCESS: Setup Round Data
+        const previewUrl = result.results[0].previewUrls[0];
         const decoys = tracks
-          .filter(t => t.id !== correct.id)
+          .filter(t => t.id !== candidate.id)
           .sort(() => Math.random() - 0.5)
           .slice(0, 3);
         
-        const shuffledOptions = [correct, ...decoys].sort(() => Math.random() - 0.5);
+        const shuffledOptions = [candidate, ...decoys].sort(() => Math.random() - 0.5);
 
-        setCurrentTrack(correct);
-        setOptions(shuffledOptions);
-        setTimeLeft(config.duration);
-        setIsAnswered(false);
-        setSelectedId(null);
-        setUsedIndices(prev => new Set(prev).add(trackIndex));
-
-        audioRef.current.src = previewUrl;
-        try {
-          await audioRef.current.play();
-          setLoadingAudio(false);
-          startTimer();
-        } catch (e) {
-          console.warn("Playback blocked or failed:", e);
-          // If playback failed (rare for valid src), try next
-          retrySearch();
+        // Pre-load audio to ensure it's ready
+        if (audioRef.current) {
+          audioRef.current.src = previewUrl;
+          try {
+            await audioRef.current.load();
+            await audioRef.current.play();
+            
+            // If play succeeds, confirm round
+            setCurrentTrack(candidate);
+            setOptions(shuffledOptions);
+            setUsedIndices(prev => new Set(prev).add(trackIndex));
+            setTimeLeft(config.duration);
+            setIsAnswered(false);
+            setSelectedId(null);
+            playableTrackFound = true;
+            setLoadingAudio(false);
+            startTimer();
+          } catch (e) {
+            console.warn("Autoplay block or loading error, retrying next track", e);
+            attempts++;
+          }
         }
       } else {
-        // No preview found for this track index.
-        console.warn(`No preview found for: ${correct.name}. Skipping to next...`);
-        retrySearch();
-      }
-    };
-
-    const retrySearch = () => {
-      // Add a small delay to prevent rapid flickering of the UI
-      setTimeout(() => {
-        trackIndex = (trackIndex + 1) % tracks.length;
+        // No preview, add to used so we don't try it again this session
+        setUsedIndices(prev => new Set(prev).add(trackIndex));
         attempts++;
-        if (attempts < tracks.length) {
-          findPlayableTrack();
-        } else {
-          // Absolute failure - no tracks in entire playlist have previews
-          onGameOver({ score, streak, correctAnswers: correctCount, missedTracks });
-        }
-      }, 300); // 300ms delay to give the user a chance to see what's happening
-    };
+      }
+    }
 
-    findPlayableTrack();
+    if (!playableTrackFound) {
+      // Entire library exhausted without previews (extreme fallback)
+      onGameOver({ score, streak, correctAnswers: correctCount, missedTracks });
+    }
 
   }, [round, tracks, config.duration, score, streak, correctCount, missedTracks, onGameOver, totalRounds, usedIndices]);
 
@@ -140,10 +122,10 @@ const GameBoard: React.FC<Props> = ({ initialTracks, difficulty, totalRounds, on
   };
 
   useEffect(() => {
-    if (tracks.length > 0 && !currentTrack && !loadingAudio) {
-      startNextRound();
+    if (!currentTrack && !loadingAudio) {
+      initiateRound();
     }
-  }, [tracks, currentTrack, startNextRound]);
+  }, [currentTrack, loadingAudio, initiateRound]);
 
   const handleAnswer = (trackId: string | null) => {
     if (isAnswered) return;
@@ -169,7 +151,7 @@ const GameBoard: React.FC<Props> = ({ initialTracks, difficulty, totalRounds, on
 
     setTimeout(() => {
       setRound(prev => prev + 1);
-      setCurrentTrack(null); // This triggers the useEffect to call startNextRound
+      setCurrentTrack(null); // Triggers re-run via useEffect
     }, 2000);
   };
 
@@ -179,6 +161,7 @@ const GameBoard: React.FC<Props> = ({ initialTracks, difficulty, totalRounds, on
     <div className="min-h-screen flex flex-col items-center justify-center p-4 md:p-8 w-full max-w-5xl mx-auto">
       <audio ref={audioRef} preload="auto" />
       
+      {/* HUD */}
       <div className="w-full flex justify-between items-end mb-8 animate-[fadeIn_0.5s_ease-out]">
         <div className="flex flex-col">
           <span className="text-[10px] font-black uppercase tracking-[0.4em] text-gray-500 mb-1">Round</span>
@@ -199,6 +182,7 @@ const GameBoard: React.FC<Props> = ({ initialTracks, difficulty, totalRounds, on
         </div>
       </div>
 
+      {/* Main UI */}
       <div className="w-full relative glass rounded-[4rem] p-8 md:p-16 overflow-hidden border-2 border-white/5 shadow-2xl">
         <div className="absolute top-0 left-0 w-full h-3 bg-white/5">
           <div 

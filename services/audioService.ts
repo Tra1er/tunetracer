@@ -25,8 +25,19 @@ export interface SpotifyPreviewResult {
 
 export const audioService = {
   /**
+   * Cleans track names for better search results (removes common suffixes)
+   */
+  cleanName(name: string): string {
+    return name
+      .replace(/\(feat\..*?\)/gi, '')
+      .replace(/\(with.*?\)/gi, '')
+      .replace(/\(.*?(remaster|version|edition|mix|edit).*?\)/gi, '')
+      .replace(/- .*?(remaster|version|edition|mix|edit).*?$/gi, '')
+      .trim();
+  },
+
+  /**
    * Internal helper to get access token using Client Credentials
-   * This mirrors the package's automatic authentication handling.
    */
   async getClientToken(): Promise<string | null> {
     try {
@@ -47,28 +58,56 @@ export const audioService = {
   },
 
   /**
-   * The core function mirroring spotifyPreviewFinder(songName, artistName, limit)
-   * Uses advanced field-restricted search to find p.scdn.co previews.
+   * The core function mirroring spotifyPreviewFinder
+   * Now with a fallback search strategy to ensure previews are found.
    */
   async spotifyPreviewFinder(songName: string, artistName: string, limit: number = 10): Promise<SpotifyPreviewResult> {
-    const searchQuery = `track:"${songName}" artist:"${artistName}"`;
+    const cleanedSong = this.cleanName(songName);
+    const strictQuery = `track:"${cleanedSong}" artist:"${artistName}"`;
+    const looseQuery = `${cleanedSong} ${artistName}`;
+    
     try {
       const token = await this.getClientToken();
       if (!token) throw new Error("Authentication failed");
 
-      const encodedQuery = encodeURIComponent(searchQuery);
-      const url = `https://api.spotify.com/v1/search?q=${encodedQuery}&type=track&limit=${limit}`;
+      // Try Stage 1: Strict Search
+      let response = await this.fetchSearch(strictQuery, token, limit);
+      let results = this.processTracks(response);
 
-      const response = await fetch(url, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const data = await response.json();
-
-      if (!data.tracks || !data.tracks.items) {
-        return { success: false, searchQuery, results: [] };
+      // Try Stage 2: Loose Search (if no previews found)
+      if (results.length === 0) {
+        response = await this.fetchSearch(looseQuery, token, limit);
+        results = this.processTracks(response);
       }
 
-      const results = data.tracks.items.map((track: any) => ({
+      return {
+        success: results.length > 0,
+        searchQuery: strictQuery,
+        results: results
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        searchQuery: strictQuery,
+        results: [],
+        error: error.message
+      };
+    }
+  },
+
+  async fetchSearch(query: string, token: string, limit: number) {
+    const encoded = encodeURIComponent(query);
+    const url = `https://api.spotify.com/v1/search?q=${encoded}&type=track&limit=${limit}`;
+    const resp = await fetch(url, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    return resp.json();
+  },
+
+  processTracks(data: any) {
+    if (!data.tracks || !data.tracks.items) return [];
+    return data.tracks.items
+      .map((track: any) => ({
         name: `${track.name} - ${track.artists.map((a: any) => a.name).join(', ')}`,
         spotifyUrl: track.external_urls.spotify,
         previewUrls: track.preview_url ? [track.preview_url] : [],
@@ -77,24 +116,8 @@ export const audioService = {
         releaseDate: track.album.release_date,
         popularity: track.popularity,
         durationMs: track.duration_ms
-      }));
-
-      // Filter for versions that actually have a preview_url
-      const validResults = results.filter(r => r.previewUrls.length > 0);
-
-      return {
-        success: validResults.length > 0,
-        searchQuery,
-        results: validResults
-      };
-    } catch (error: any) {
-      return {
-        success: false,
-        searchQuery,
-        results: [],
-        error: error.message
-      };
-    }
+      }))
+      .filter((r: any) => r.previewUrls.length > 0);
   },
 
   /**

@@ -32,11 +32,11 @@ const DifficultySelector: React.FC<Props> = ({ tracks, loading, onSelect, onBack
       if (result.success && result.results.length > 0 && result.results[0].previewUrls[0]) {
         if (audioRef.current) {
           audioRef.current.src = result.results[0].previewUrls[0];
-          audioRef.current.play();
+          audioRef.current.play().catch(console.error);
           setPlayingId(track.id);
         }
       } else {
-        alert("No preview available for this track on Spotify.");
+        alert(`No preview found on Spotify for: ${track.name}`);
       }
     } catch (e) {
       console.error(e);
@@ -64,7 +64,7 @@ const DifficultySelector: React.FC<Props> = ({ tracks, loading, onSelect, onBack
         <div className="flex-1 flex flex-col justify-center gap-10">
           <div>
             <h2 className="text-5xl font-black text-white mb-2 tracking-tighter">BATTLE ROOM</h2>
-            <p className="text-gray-400 font-medium">Fine-tune your challenge parameters.</p>
+            <p className="text-gray-400 font-medium">Configure your session parameters.</p>
           </div>
 
           <section>
@@ -83,7 +83,7 @@ const DifficultySelector: React.FC<Props> = ({ tracks, loading, onSelect, onBack
           </section>
 
           <section>
-            <h3 className="text-[10px] font-black text-[#1DB954] uppercase tracking-[0.4em] mb-4">Choose Difficulty</h3>
+            <h3 className="text-[10px] font-black text-[#1DB954] uppercase tracking-[0.4em] mb-4">Challenge Level</h3>
             <div className="grid grid-cols-1 gap-4">
               {Object.entries(DIFFICULTY_CONFIG).map(([key, config]) => {
                 const diffKey = key as GameDifficulty;
@@ -116,37 +116,37 @@ const DifficultySelector: React.FC<Props> = ({ tracks, loading, onSelect, onBack
             className="text-gray-500 hover:text-white flex items-center gap-3 transition-colors font-black uppercase tracking-widest text-xs mt-4"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M10 19l-7-7m0 0l7-7m-7 7h18" strokeWidth={3}/></svg>
-            Change Playlist
+            Back to Library
           </button>
         </div>
 
-        {/* Right: Track Preview */}
+        {/* Right: Track Pool with Previews */}
         <div className="w-full lg:w-[450px] flex flex-col glass rounded-[3rem] border-2 border-white/5 overflow-hidden shadow-2xl">
-          <div className="p-8 bg-white/5 border-b border-white/5">
-            <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.4em]">Playlist Pool ({tracks.length})</h3>
+          <div className="p-8 bg-white/5 border-b border-white/5 flex justify-between items-center">
+            <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.4em]">Pool ({tracks.length})</h3>
+            <span className="text-[10px] font-bold text-[#1DB954] uppercase tracking-widest">Click to Preview</span>
           </div>
-          <div className="flex-1 overflow-y-auto p-6 space-y-3 custom-scrollbar">
+          <div className="flex-1 overflow-y-auto p-6 space-y-2 custom-scrollbar">
             {tracks.map((track, i) => (
-              <div key={track.id + i} className="flex items-center gap-4 p-4 rounded-2xl hover:bg-white/5 transition-colors group">
+              <div 
+                key={`${track.id}-${i}`} 
+                onClick={() => togglePreview(track)}
+                className={`flex items-center gap-4 p-3 rounded-2xl transition-all cursor-pointer group ${playingId === track.id ? 'bg-white/10' : 'hover:bg-white/5'}`}
+              >
                 <div className="relative flex-shrink-0">
                   <img src={track.album.images[0]?.url} className="w-12 h-12 rounded-xl shadow-lg group-hover:scale-105 transition-transform object-cover" alt="" />
-                  <button 
-                    onClick={() => togglePreview(track)}
-                    disabled={loadingPreviewId !== null && loadingPreviewId !== track.id}
-                    className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity"
-                  >
+                  <div className={`absolute inset-0 flex items-center justify-center rounded-xl transition-all ${playingId === track.id ? 'bg-black/60' : 'bg-black/0 group-hover:bg-black/40'}`}>
                     {loadingPreviewId === track.id ? (
                       <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                     ) : playingId === track.id ? (
-                      <svg className="w-6 h-6 text-white fill-current" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                      <svg className="w-6 h-6 text-[#1DB954] fill-current" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
                     ) : (
-                      <svg className="w-6 h-6 text-white fill-current translate-x-0.5" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                      <svg className="w-6 h-6 text-white fill-current translate-x-0.5 opacity-0 group-hover:opacity-100" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
                     )}
-                  </button>
-                  <span className="absolute -top-2 -left-2 bg-black/80 text-[10px] font-black px-2 py-0.5 rounded-full border border-white/10 text-gray-400">{i + 1}</span>
+                  </div>
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-bold text-white truncate group-hover:text-[#1DB954] transition-colors">{track.name}</p>
+                  <p className={`text-sm font-bold truncate transition-colors ${playingId === track.id ? 'text-[#1DB954]' : 'text-white'}`}>{track.name}</p>
                   <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest truncate">{track.artists[0].name}</p>
                 </div>
               </div>
