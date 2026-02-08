@@ -1,6 +1,7 @@
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { GameDifficulty, DIFFICULTY_CONFIG, SpotifyTrack } from '../types.ts';
+import { audioService } from '../services/audioService.ts';
 
 interface Props {
   tracks: SpotifyTrack[];
@@ -11,9 +12,38 @@ interface Props {
 
 const DifficultySelector: React.FC<Props> = ({ tracks, loading, onSelect, onBack }) => {
   const [rounds, setRounds] = useState<number>(10);
+  const [playingId, setPlayingId] = useState<string | null>(null);
+  const [loadingPreviewId, setLoadingPreviewId] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   
   const roundOptions = [5, 10, 20];
   if (tracks.length > 20) roundOptions.push(Math.min(tracks.length, 50));
+
+  const togglePreview = async (track: SpotifyTrack) => {
+    if (playingId === track.id) {
+      audioRef.current?.pause();
+      setPlayingId(null);
+      return;
+    }
+
+    setLoadingPreviewId(track.id);
+    try {
+      const result = await audioService.spotifyPreviewFinder(track.name, track.artists[0].name);
+      if (result.success && result.results.length > 0 && result.results[0].previewUrls[0]) {
+        if (audioRef.current) {
+          audioRef.current.src = result.results[0].previewUrls[0];
+          audioRef.current.play();
+          setPlayingId(track.id);
+        }
+      } else {
+        alert("No preview available for this track on Spotify.");
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingPreviewId(null);
+    }
+  };
 
   if (loading) {
     return (
@@ -26,6 +56,8 @@ const DifficultySelector: React.FC<Props> = ({ tracks, loading, onSelect, onBack
 
   return (
     <div className="min-h-screen w-full max-w-7xl mx-auto flex flex-col p-4 md:p-8 animate-[fadeIn_0.4s_ease-out]">
+      <audio ref={audioRef} onEnded={() => setPlayingId(null)} />
+      
       <div className="flex flex-col lg:flex-row gap-8 flex-1 overflow-hidden">
         
         {/* Left: Configuration */}
@@ -58,7 +90,10 @@ const DifficultySelector: React.FC<Props> = ({ tracks, loading, onSelect, onBack
                 return (
                   <button
                     key={key}
-                    onClick={() => onSelect(diffKey, rounds)}
+                    onClick={() => {
+                      audioRef.current?.pause();
+                      onSelect(diffKey, rounds);
+                    }}
                     className="group bg-white/5 p-6 rounded-[2rem] border-2 border-transparent hover:border-[#1DB954] hover:bg-white/10 transition-all flex items-center justify-between text-left shadow-xl"
                   >
                     <div>
@@ -93,8 +128,21 @@ const DifficultySelector: React.FC<Props> = ({ tracks, loading, onSelect, onBack
           <div className="flex-1 overflow-y-auto p-6 space-y-3 custom-scrollbar">
             {tracks.map((track, i) => (
               <div key={track.id + i} className="flex items-center gap-4 p-4 rounded-2xl hover:bg-white/5 transition-colors group">
-                <div className="relative">
-                  <img src={track.album.images[0]?.url} className="w-12 h-12 rounded-xl shadow-lg group-hover:scale-105 transition-transform" alt="" />
+                <div className="relative flex-shrink-0">
+                  <img src={track.album.images[0]?.url} className="w-12 h-12 rounded-xl shadow-lg group-hover:scale-105 transition-transform object-cover" alt="" />
+                  <button 
+                    onClick={() => togglePreview(track)}
+                    disabled={loadingPreviewId !== null && loadingPreviewId !== track.id}
+                    className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    {loadingPreviewId === track.id ? (
+                      <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    ) : playingId === track.id ? (
+                      <svg className="w-6 h-6 text-white fill-current" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                    ) : (
+                      <svg className="w-6 h-6 text-white fill-current translate-x-0.5" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                    )}
+                  </button>
                   <span className="absolute -top-2 -left-2 bg-black/80 text-[10px] font-black px-2 py-0.5 rounded-full border border-white/10 text-gray-400">{i + 1}</span>
                 </div>
                 <div className="min-w-0 flex-1">
