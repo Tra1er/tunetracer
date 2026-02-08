@@ -40,6 +40,7 @@ const GameBoard: React.FC<Props> = ({ initialTracks, difficulty, totalRounds, on
       return;
     }
 
+    // Selection Logic: Find a fresh track index from the pool
     let trackIndex = Math.floor(Math.random() * tracks.length);
     let attempts = 0;
     while (usedIndices.has(trackIndex) && attempts < tracks.length) {
@@ -47,6 +48,7 @@ const GameBoard: React.FC<Props> = ({ initialTracks, difficulty, totalRounds, on
       attempts++;
     }
     
+    // Safety: Reset used pool if we run out (unlikely with 100+ tracks)
     if (usedIndices.size >= tracks.length) {
       setUsedIndices(new Set([trackIndex]));
     } else {
@@ -54,6 +56,8 @@ const GameBoard: React.FC<Props> = ({ initialTracks, difficulty, totalRounds, on
     }
 
     const correct = tracks[trackIndex];
+    
+    // Pick 3 decoys
     const decoys = tracks
       .filter(t => t.id !== correct.id)
       .sort(() => Math.random() - 0.5)
@@ -67,22 +71,15 @@ const GameBoard: React.FC<Props> = ({ initialTracks, difficulty, totalRounds, on
     setIsAnswered(false);
     setSelectedId(null);
     setLoadingAudio(true);
-    setStatusMessage("Crawling Spotify...");
+    setStatusMessage("Searching Spotify Catalog...");
 
-    let previewUrl = null;
-
-    // DEEP CRAWLER LOGIC: 
-    // We search the global catalog for any version (p.scdn.co link) of this exact song.
-    const crawlerResult = await audioService.spotifyPreviewFinder(correct.name, correct.artists[0].name);
+    // USING SPOTIFY-PREVIEW-FINDER LOGIC EXCLUSIVELY
+    const result = await audioService.spotifyPreviewFinder(correct.name, correct.artists[0].name);
     
-    if (crawlerResult.success && crawlerResult.results.length > 0) {
-      previewUrl = crawlerResult.results[0].previewUrl;
-    }
-
-    // FINAL FALLBACK:
-    if (!previewUrl) {
-      setStatusMessage("Using Global Backup...");
-      previewUrl = await audioService.getItunesPreview(correct.name, correct.artists[0].name);
+    let previewUrl = null;
+    if (result.success && result.results.length > 0) {
+      // Package returns results sorted by popularity/relevance; pick the best previewUrl
+      previewUrl = result.results[0].previewUrls[0];
     }
 
     if (previewUrl && audioRef.current) {
@@ -91,12 +88,14 @@ const GameBoard: React.FC<Props> = ({ initialTracks, difficulty, totalRounds, on
         setLoadingAudio(false);
         startTimer();
       }).catch(() => {
+        // Handle auto-play restrictions or invalid files
         setLoadingAudio(false);
         handleAnswer(null); 
       });
     } else {
-      // If we still can't find it, skip to next round quietly
-      setRound(prev => prev + 1);
+      // IF NO PREVIEW FOUND: 
+      // Silently pick a different track for the current round to maintain game flow
+      console.warn(`No preview found for: ${correct.name}. Skipping...`);
       startNextRound();
     }
 
@@ -155,6 +154,7 @@ const GameBoard: React.FC<Props> = ({ initialTracks, difficulty, totalRounds, on
     <div className="min-h-screen flex flex-col items-center justify-center p-4 md:p-8 w-full max-w-5xl mx-auto">
       <audio ref={audioRef} preload="auto" />
       
+      {/* Stats Bar */}
       <div className="w-full flex justify-between items-end mb-8 animate-[fadeIn_0.5s_ease-out]">
         <div className="flex flex-col">
           <span className="text-[10px] font-black uppercase tracking-[0.4em] text-gray-500 mb-1">Round</span>
@@ -175,6 +175,7 @@ const GameBoard: React.FC<Props> = ({ initialTracks, difficulty, totalRounds, on
         </div>
       </div>
 
+      {/* Main Game Card */}
       <div className="w-full relative glass rounded-[4rem] p-8 md:p-16 overflow-hidden border-2 border-white/5 shadow-2xl">
         <div className="absolute top-0 left-0 w-full h-3 bg-white/5">
           <div 
